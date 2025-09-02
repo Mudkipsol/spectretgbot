@@ -23,7 +23,7 @@ import spoof_engine as se  # used to set runtime globals for the engine
 from gif_spoofer import spoof_gif_advanced, batch_spoof_gifs
 from video_to_gif import convert_video_to_gif, extract_gif_segment, create_gif_from_video_clips
 from frame_extractor import extract_frames_by_count, extract_frames_by_time, extract_key_frames
-from bulk_processor import bulk_spoof_photos, bulk_spoof_videos, bulk_convert_to_gifs, bulk_extract_frames, create_bulk_output_zip
+from bulk_processor import bulk_spoof_photos, bulk_spoof_videos, bulk_spoof_gifs, bulk_convert_to_gifs, bulk_extract_frames, create_bulk_output_zip
 
 # Custom bulk function for key frames
 async def bulk_extract_frames_custom(video_paths, method, frame_count, max_workers=2):
