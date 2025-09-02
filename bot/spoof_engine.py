@@ -96,31 +96,40 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
         ],
         "YT_WEB": [
             "-c:v", "libx264",
-            "-preset", "medium",
+            "-preset", "ultrafast",  # Fastest preset for container environments
+            "-tune", "zerolatency",  # Optimized for low latency
             "-g", "30",
-            "-b:v", "4500k",
-            "-maxrate", "6000k",
-            "-bufsize", "8000k",
-            "-profile:v", "high",
-            "-level", "4.0"
+            "-b:v", "2500k",  # Reduced bitrate for faster processing
+            "-maxrate", "3000k",
+            "-bufsize", "4000k",
+            "-profile:v", "baseline",  # Most compatible profile
+            "-level", "4.0",
+            "-threads", "2"  # Limit threads for containers
         ],
         "IG_REELS": [
             "-c:v", "libx264",
-            "-preset", "ultrafast",
-            "-g", "45",
-            "-b:v", "3000k",
-            "-maxrate", "3200k",
-            "-bufsize", "5000k",
-            "-profile:v", "baseline",
-            "-level", "3.0",
+            "-preset", "ultrafast",  # Fastest preset for container environments
+            "-tune", "zerolatency",  # Optimized for low latency
+            "-g", "30",  # Reduced GOP size for faster processing
+            "-b:v", "2500k",  # Reduced bitrate for faster processing
+            "-maxrate", "3000k",
+            "-bufsize", "4000k",
+            "-profile:v", "baseline",  # Most compatible profile
+            "-level", "4.0",  # Increased from 3.0 to 4.0 for high res support
+            "-threads", "2",  # Limit threads for containers
             "-movflags", "+faststart"
         ],
         "MOBILE_NATIVE": [
             "-c:v", "libx264",
-            "-preset", "superfast",
+            "-preset", "ultrafast",  # Fastest preset for container environments
+            "-tune", "zerolatency",  # Optimized for low latency
             "-g", "30",
-            "-b:v", "2500k",
-            "-profile:v", "main",
+            "-b:v", "2000k",  # Reduced bitrate for faster processing
+            "-maxrate", "2500k",
+            "-bufsize", "3000k",
+            "-profile:v", "baseline",  # Most compatible profile
+            "-level", "4.0",  # Safe level for high res
+            "-threads", "2",  # Limit threads for containers
             "-movflags", "+faststart"
         ],
         "NONE": ["-c:v", "copy"]
