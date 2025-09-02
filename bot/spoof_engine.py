@@ -78,7 +78,7 @@ def apply_sensor_fingerprint(frame, model="SONY_IMX"):
 TRANSCODE_PROFILE = "TIKTOK_IOS"  # Options: TIKTOK_IOS, YT_WEB, IG_REELS, MOBILE_NATIVE, NONE
 
 # === PHASE 3.1: COMPRESSOR SIGNATURE EMULATION ===
-def build_transcode_command(input_path, original_audio_path, output_path, profile):
+def build_transcode_command(input_path, original_audio_path, output_path, profile, ffmpeg_path="ffmpeg"):
     common_flags = ["-map", "0:v:0", "-map", "1:a:0", "-y"]
     profile_map = {
         "TIKTOK_IOS": [
@@ -125,7 +125,7 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
         ],
         "NONE": ["-c:v", "copy"]
     }
-    cmd = ["ffmpeg", "-i", input_path, "-i", original_audio_path] + profile_map.get(profile, profile_map["NONE"]) + ["-c:a", "aac"] + common_flags + [output_path]
+    cmd = [ffmpeg_path, "-i", input_path, "-i", original_audio_path] + profile_map.get(profile, profile_map["NONE"]) + ["-c:a", "aac"] + common_flags + [output_path]
     return cmd
 
 
@@ -362,13 +362,21 @@ def compute_ai_detectability_score(video_path):
 
 def run_spoof_pipeline(filepath):
     try:
-        FFMPEG_PATH = "C:\\Tools\\FFmpeg\\ffmpeg.exe"
+        # Auto-detect FFMPEG path based on environment
+        FFMPEG_PATH = shutil.which("ffmpeg")
+        if FFMPEG_PATH is None:
+            # Fallback to Windows path if running locally
+            windows_ffmpeg = "C:\\Tools\\FFmpeg\\ffmpeg.exe"
+            if os.path.exists(windows_ffmpeg):
+                FFMPEG_PATH = windows_ffmpeg
+            else:
+                print(f"[❌] FFMPEG not found in PATH or at {windows_ffmpeg}")
+                return
+        
         EXIFTOOL_PATH = "exiftool"
-
-        if not os.path.exists(FFMPEG_PATH):
-            print(f"[❌] FFMPEG not found at {FFMPEG_PATH}")
         if shutil.which(EXIFTOOL_PATH) is None:
             print(f"[❌] ExifTool not found in PATH.")
+            return
 
         filename = os.path.basename(filepath)
         spoof_id = uuid.uuid4().hex[:8]
@@ -495,7 +503,7 @@ def run_spoof_pipeline(filepath):
     print("🔧 Spoofing:", filename)
     frame_variance_spoofer(temp_video_only)
 
-    transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE)
+    transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
     subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     # === PHASE 2.5 ADDITIONS ===
 
