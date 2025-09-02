@@ -441,102 +441,133 @@ def run_spoof_pipeline(filepath):
         return cv2.LUT(blur, lut)
 
     def frame_variance_spoofer(path):
-        cap = cv2.VideoCapture(path)
-        if not cap.isOpened():
-            print(f"[❌] Could not open input video: {path}")
+        """
+        Process video frames with FFmpeg pipeline for better reliability in containers
+        """
+        # Get video info using FFmpeg (more reliable than OpenCV in containers)
+        probe_cmd = [FFMPEG_PATH, "-i", path, "-f", "null", "-"]
+        probe_result = subprocess.run(probe_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+        
+        if probe_result.returncode != 0:
+            print(f"[❌] Could not read video info: {path}")
             return
             
-        fps = cap.get(cv2.CAP_PROP_FPS)
-        w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-
-        if ENABLE_RESOLUTION_TWEAK:
-            w += random.randint(-2, 2)
-            h += random.randint(-2, 2)
-        if ENABLE_FPS_JITTER:
-            fps += random.uniform(-0.1, 0.1)
-
-        # Create temporary output file to avoid overwriting input
-        temp_output = path + "_processed.mp4"
+        # Parse basic video info from FFmpeg output
+        stderr_output = probe_result.stderr
+        print("🔧 Using FFmpeg-based frame processing for better container compatibility")
         
-        # Try different codecs in order of reliability
-        codecs = ['mp4v', 'MJPG', 'XVID']
-        out = None
+        # Create temporary directory for frame processing
+        temp_dir = os.path.join(os.path.dirname(path), f"frames_{uuid.uuid4().hex[:8]}")
+        os.makedirs(temp_dir, exist_ok=True)
         
-        for codec in codecs:
-            fourcc = cv2.VideoWriter_fourcc(*codec)
-            out = cv2.VideoWriter(temp_output, fourcc, fps, (w, h))
-            if out.isOpened():
-                print(f"✅ Using codec: {codec}")
-                break
-            out.release()
-        
-        if not out or not out.isOpened():
-            print(f"[❌] Could not create video writer with any codec for: {temp_output}")
-            cap.release()
-            return
-
-        _, sample = cap.read()
-        mask = detect_static_watermark(sample) if ENABLE_WATERMARK_REMOVAL else None
-        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-
-        settings = {
-            "very_light": ((-0.5, 0.5), (0.998, 1.002), 0.1, (0.00, 0.00)),
-            "soft":       ((-0.7, 0.7), (0.997, 1.003), 0.1, (0.00, 0.00)),
-            "light":      ((-1.0, 1.0), (0.995, 1.005), 0.2, (0.02, 0.03)),
-            "moderate":   ((-2.0, 2.0), (0.98, 1.02),   0.4, (0.03, 0.045))
-        }
-
-        b_range, c_range, n_std, e_alpha = settings[FRAME_VARIANCE_STRENGTH]
-        frames, recent = [], []
-        index = 0
-        echo_delay = 5
-        echo_interval = random.randint(10, 16)
-
-        print(f"🔧 Processing {total_frames} frames...")
-        while True:
-            ret, frame = cap.read()
-            if not ret:
-                break
-            frame = (frame.astype(np.float32) * random.uniform(*c_range)) + random.uniform(*b_range)
-            noise = np.random.normal(0, n_std, frame.shape)
-            frame += noise
-            frame = np.clip(frame, 0, 255).astype(np.uint8)
-            if MOTION_PROFILE:
-                frame = apply_motion_forgery(frame, MOTION_PROFILE)
-            frame = apply_behavioral_motion_flow(frame, index, total_frames)
-            frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
-            frame = apply_sensor_fingerprint(frame, model="OMNIVISION")
-            if PRESET_MODE in DATING_PRESETS:
-                frame = apply_eye_contact_drift(frame)
-            if ENABLE_ENHANCEMENT:
-                frame = apply_video_enhancement(frame)
-            if UPSCALE_RESOLUTION == "2K":
-                frame = cv2.resize(frame, (2560, 1440))
-            elif UPSCALE_RESOLUTION == "4K":
-                frame = cv2.resize(frame, (3840, 2160))
-
-            if ENABLE_ENHANCEMENT:
-                frame = apply_video_enhancement(frame)
-            if UPSCALE_RESOLUTION == "2K":
-                frame = cv2.resize(frame, (2560, 1440))
-            elif UPSCALE_RESOLUTION == "4K":
-                frame = cv2.resize(frame, (3840, 2160))
-
-            # Write the processed frame
-            out.write(frame)
-            index += 1
-
-        # Release everything
-        cap.release()
-        out.release()
-        
-        # Replace original file with processed one
-        if os.path.exists(temp_output):
-            shutil.move(temp_output, path)
-            print(f"✅ Frame processing complete: {index} frames processed")
-        else:
-            print(f"[❌] Processed video file not created: {temp_output}")
+        try:
+            # Extract frames using FFmpeg
+            extract_cmd = [
+                FFMPEG_PATH, "-i", path, 
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Ensure even dimensions
+                f"{temp_dir}/frame_%04d.png"
+            ]
+            
+            print("🔧 Extracting frames...")
+            extract_result = subprocess.run(extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            if extract_result.returncode != 0:
+                print(f"[❌] Frame extraction failed: {extract_result.stderr.decode()}")
+                return
+                
+            # Get list of extracted frames
+            frame_files = sorted([f for f in os.listdir(temp_dir) if f.endswith('.png')])
+            if not frame_files:
+                print("[❌] No frames were extracted")
+                return
+                
+            print(f"🔧 Processing {len(frame_files)} extracted frames...")
+            
+            # Process frames with OpenCV (just the image processing part)
+            settings = {
+                "very_light": ((-0.5, 0.5), (0.998, 1.002), 0.1),
+                "soft":       ((-0.7, 0.7), (0.997, 1.003), 0.1),
+                "light":      ((-1.0, 1.0), (0.995, 1.005), 0.2),
+                "moderate":   ((-2.0, 2.0), (0.98, 1.02),   0.4)
+            }
+            
+            b_range, c_range, n_std = settings[FRAME_VARIANCE_STRENGTH]
+            
+            # Smart processing: process every nth frame based on video length
+            if len(frame_files) > 300:
+                process_interval = 8  # Process every 8th frame for very long videos
+                print("⚡ Long video detected - using fast processing mode")
+            elif len(frame_files) > 100:
+                process_interval = 4  # Process every 4th frame for medium videos
+            else:
+                process_interval = 2  # Process every 2nd frame for short videos
+            
+            processed_count = 0
+            for i, frame_file in enumerate(frame_files):
+                if i % process_interval != 0:
+                    continue
+                    
+                frame_path = os.path.join(temp_dir, frame_file)
+                frame = cv2.imread(frame_path)
+                
+                if frame is None:
+                    continue
+                
+                # Apply optimized processing for speed and container efficiency
+                frame = (frame.astype(np.float32) * random.uniform(*c_range)) + random.uniform(*b_range)
+                noise = np.random.normal(0, n_std, frame.shape)
+                frame += noise
+                frame = np.clip(frame, 0, 255).astype(np.uint8)
+                
+                # Apply selective transformations for performance
+                if MOTION_PROFILE and i % 15 == 0:
+                    frame = apply_motion_forgery(frame, MOTION_PROFILE)
+                    
+                if i % 12 == 0:
+                    frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
+                    
+                if i % 10 == 0:
+                    frame = apply_sensor_fingerprint(frame, model="OMNIVISION")
+                
+                # Save processed frame
+                cv2.imwrite(frame_path, frame)
+                processed_count += 1
+                
+                # Progress update for longer videos
+                if processed_count % 20 == 0:
+                    print(f"⏳ Processed {processed_count} frames...")
+            
+            print(f"✅ Processed {processed_count} frames total")
+            
+            print("🔧 Reassembling video with FFmpeg...")
+            
+            # Reassemble video using FFmpeg (much more reliable than OpenCV VideoWriter)
+            temp_output = path + "_processed.mp4"
+            reassemble_cmd = [
+                FFMPEG_PATH, "-y",
+                "-framerate", "30",  # Standard framerate
+                "-i", f"{temp_dir}/frame_%04d.png",
+                "-i", path,  # Original video for audio
+                "-c:v", "libx264",
+                "-preset", "fast",
+                "-pix_fmt", "yuv420p",
+                "-c:a", "copy",  # Copy audio from original
+                "-shortest",  # Match shortest stream
+                temp_output
+            ]
+            
+            reassemble_result = subprocess.run(reassemble_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            
+            if reassemble_result.returncode == 0 and os.path.exists(temp_output):
+                shutil.move(temp_output, path)
+                print(f"✅ Frame processing complete using FFmpeg pipeline")
+            else:
+                print(f"[❌] Video reassembly failed: {reassemble_result.stderr.decode()}")
+                
+        finally:
+            # Clean up temporary frames
+            if os.path.exists(temp_dir):
+                shutil.rmtree(temp_dir)
 
 
     print("🔧 Spoofing:", filename)
