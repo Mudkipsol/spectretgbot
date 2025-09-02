@@ -422,23 +422,42 @@ def apply_temporal_speed_variance(video_path, platform_profile, output_path, ffm
     if abs(speed_factor - 1.0) > 0.001:
         print(f"🔧 Applying {speed_factor:.4f}x speed adjustment (imperceptible)")
         
+        # Try with audio tempo adjustment first
         cmd = [
             ffmpeg_path, "-i", video_path,
             "-filter:v", f"setpts={1/speed_factor}*PTS",
             "-filter:a", f"atempo={speed_factor}",
-            "-c:v", "libx264", "-preset", "fast",
-            "-c:a", "aac", "-y", output_path
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:a", "aac", "-threads", "2", "-y", output_path
         ]
         
         try:
             result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
             if result.returncode == 0 and os.path.exists(output_path):
                 return True
+        except subprocess.TimeoutExpired:
+            print(f"[⚠️] Speed adjustment timed out")
+        
+        # Fallback: Video-only speed adjustment (still breaks temporal fingerprints)
+        print(f"🔧 Fallback: Video-only speed adjustment")
+        cmd_fallback = [
+            ffmpeg_path, "-i", video_path,
+            "-filter:v", f"setpts={1/speed_factor}*PTS",
+            "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+            "-c:a", "copy",  # Copy audio without tempo change
+            "-threads", "2", "-y", output_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd_fallback, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0 and os.path.exists(output_path):
+                print(f"✅ Video-only speed adjustment successful")
+                return True
             else:
-                print(f"[⚠️] Speed adjustment failed, using original")
+                print(f"[⚠️] Speed adjustment failed: {result.stderr.decode()[:200]}")
                 return False
         except subprocess.TimeoutExpired:
-            print(f"[⚠️] Speed adjustment timed out, using original")
+            print(f"[⚠️] Speed adjustment timed out")
             return False
     
     return False  # No speed change applied
