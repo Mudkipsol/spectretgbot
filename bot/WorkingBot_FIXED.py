@@ -384,7 +384,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         context.user_data['selected_gif_platform'] = selected_platform
         await query.edit_message_text(
             f"✅ Platform set: {selected_platform.capitalize()}!\n"
-            f"🎭 Please send your GIF to spoof.",
+            f"🎭 Please send your GIF to spoof.\n\n"
+            f"📝 Note: Telegram may convert your GIF to MP4 - that's fine, we'll handle it!",
             reply_markup=back_button()
         )
 
@@ -700,6 +701,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file = update.message.document or update.message.video or update.message.photo[-1]
     file_id = file.file_id
     file_name = getattr(file, 'file_name', None) or f"{file_id}.jpg"
+    
+    # Handle Telegram's automatic GIF to MP4 conversion
+    if file_type == 'gif' and update.message.video and not file_name:
+        file_name = f"telegram_gif_{file_id}.gif.mp4"
+    elif file_type == 'gif' and hasattr(file, 'mime_type') and file.mime_type == 'video/mp4':
+        # This is likely a converted GIF
+        base_name = getattr(file, 'file_name', f"gif_{file_id}")
+        if not base_name.endswith('.gif.mp4'):
+            file_name = f"{base_name}.gif.mp4"
+    
     input_path = os.path.join(DOWNLOAD_DIR, file_name)
 
     new_file = await context.bot.get_file(file_id)
@@ -848,7 +859,16 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         platform = context.user_data.get('selected_gif_platform', "reddit")
         await update.message.reply_text(f"🎭 Spoofing GIF for {platform.upper()}...")
         try:
-            output_path = await asyncio.to_thread(spoof_gif_advanced, input_path, platform, "medium", True)
+            # Check if Telegram converted GIF to MP4
+            if input_path.endswith('.gif.mp4') or input_path.endswith('.mp4'):
+                # Convert MP4 back to GIF first, then spoof it
+                await update.message.reply_text("🔄 Converting Telegram MP4 back to GIF...")
+                gif_path = await asyncio.to_thread(convert_video_to_gif, input_path, fps=15, width=400, platform="general")
+                output_path = await asyncio.to_thread(spoof_gif_advanced, gif_path, platform, "medium", True)
+            else:
+                # Process as regular GIF
+                output_path = await asyncio.to_thread(spoof_gif_advanced, input_path, platform, "medium", True)
+            
             with open(output_path, "rb") as f:
                 await context.bot.send_document(
                     chat_id=update.effective_chat.id,
