@@ -96,13 +96,13 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
         ],
         "YT_WEB": [
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # Fastest preset for container environments
-            "-tune", "zerolatency",  # Optimized for low latency
+            "-preset", "fast",  # Good balance of quality and speed
+            "-tune", "film",  # Better quality for video content
             "-g", "30",
-            "-b:v", "2500k",  # Reduced bitrate for faster processing
-            "-maxrate", "3000k",
-            "-bufsize", "4000k",
-            "-profile:v", "baseline",  # Most compatible profile
+            "-b:v", "4000k",  # Higher bitrate for better quality
+            "-maxrate", "4500k",
+            "-bufsize", "6000k",
+            "-profile:v", "main",  # Better quality than baseline
             "-level", "4.0",
             "-threads", "2"  # Limit threads for containers
         ],
@@ -260,11 +260,12 @@ def apply_style_morph(frame, preset):
         frame *= np.array([1.00, 0.95, 0.90])
         frame = cv2.GaussianBlur(frame, (3, 3), 0)
     elif preset == "CINEMATIC_FADE":
-        frame = cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_BGR2HSV).astype(np.float32)
-        frame[..., 1] *= 0.85
-        frame[..., 2] *= 1.08
-        frame = np.clip(cv2.cvtColor(frame.astype(np.uint8), cv2.COLOR_HSV2BGR), 0, 255)
-        return frame
+        # More stable CINEMATIC_FADE processing to avoid flickering
+        frame = frame.astype(np.float32)
+        # Apply subtle warm tone and slight saturation reduction
+        frame *= np.array([1.02, 1.00, 0.98])  # Warm tone
+        frame = frame * 0.95 + 8  # Slight lift and reduce contrast
+        return np.clip(frame, 0, 255).astype(np.uint8)
     return np.clip(frame, 0, 255).astype(np.uint8)
 
 
@@ -548,14 +549,14 @@ def run_spoof_pipeline(filepath):
                 frame += noise
                 frame = np.clip(frame, 0, 255).astype(np.uint8)
                 
-                # Apply selective transformations for performance
-                if MOTION_PROFILE and i % 15 == 0:
+                # Apply transformations consistently to avoid flickering
+                if MOTION_PROFILE and i % 20 == 0:  # Less frequent to reduce artifacts
                     frame = apply_motion_forgery(frame, MOTION_PROFILE)
                     
-                if i % 12 == 0:
-                    frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
+                # Apply style morphing to ALL processed frames for consistency
+                frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
                     
-                if i % 10 == 0:
+                if i % 15 == 0:  # Less frequent sensor fingerprinting
                     frame = apply_sensor_fingerprint(frame, model="OMNIVISION")
                 
                 # Save processed frame
