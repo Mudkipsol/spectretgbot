@@ -83,15 +83,15 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
     profile_map = {
         "TIKTOK_IOS": [
             "-c:v", "libx264",
-            "-preset", "fast",  # Changed from slow to fast for better container performance
-            "-tune", "film",
-            "-g", "48",  # GOP size
-            "-x264opts", "keyint=48:min-keyint=24:no-scenecut",
-            "-b:v", "2800k",
-            "-maxrate", "3500k",
-            "-bufsize", "6000k",
-            "-profile:v", "main",
-            "-level", "4.1",  # Increased from 3.1 to 4.1 for high res support
+            "-preset", "ultrafast",  # Fastest preset for container environments
+            "-tune", "zerolatency",  # Optimized for low latency
+            "-g", "30",  # Reduced GOP size for faster processing
+            "-b:v", "2000k",  # Reduced bitrate for faster processing
+            "-maxrate", "2500k",
+            "-bufsize", "4000k",
+            "-profile:v", "baseline",  # Most compatible profile
+            "-level", "4.0",  # Safe level
+            "-threads", "2",  # Limit threads for containers
             "-movflags", "+faststart"
         ],
         "YT_WEB": [
@@ -599,7 +599,22 @@ def run_spoof_pipeline(filepath):
 
     transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
     print("🔧 Running transcode command:", " ".join(transcode_cmd))
-    result = subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    try:
+        result = subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=180)  # 3 minute timeout
+    except subprocess.TimeoutExpired:
+        print("[❌] Transcoding timed out after 180 seconds, trying simple copy...")
+        # Fallback: simple copy with audio from original
+        simple_cmd = [
+            FFMPEG_PATH, "-i", temp_video_only, "-i", filepath,
+            "-c:v", "copy", "-c:a", "copy", "-map", "0:v:0", "-map", "1:a:0",
+            "-y", transcoded_output
+        ]
+        try:
+            result = subprocess.run(simple_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+        except subprocess.TimeoutExpired:
+            print("[❌] Simple copy also timed out")
+            return
     
     if result.returncode != 0 or not os.path.exists(transcoded_output):
         print(f"[❌] Transcoding failed. FFmpeg STDERR:")
@@ -607,6 +622,8 @@ def run_spoof_pipeline(filepath):
         print(f"[❌] FFmpeg STDOUT:")
         print(result.stdout.decode())
         return
+    
+    print("✅ Transcoding completed successfully")
     # === PHASE 2.5 ADDITIONS ===
 
     # ➕ Subtitle Track Injection (Invisible .srt)
