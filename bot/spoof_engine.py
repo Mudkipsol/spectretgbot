@@ -442,8 +442,13 @@ def run_spoof_pipeline(filepath):
 
     def frame_variance_spoofer(path):
         cap = cv2.VideoCapture(path)
+        if not cap.isOpened():
+            print(f"[❌] Could not open input video: {path}")
+            return
+            
         fps = cap.get(cv2.CAP_PROP_FPS)
         w, h = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)), int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
         if ENABLE_RESOLUTION_TWEAK:
             w += random.randint(-2, 2)
@@ -451,9 +456,25 @@ def run_spoof_pipeline(filepath):
         if ENABLE_FPS_JITTER:
             fps += random.uniform(-0.1, 0.1)
 
-        # Create video writer to save processed frames
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(path, fourcc, fps, (w, h))
+        # Create temporary output file to avoid overwriting input
+        temp_output = path + "_processed.mp4"
+        
+        # Try different codecs in order of reliability
+        codecs = ['mp4v', 'MJPG', 'XVID']
+        out = None
+        
+        for codec in codecs:
+            fourcc = cv2.VideoWriter_fourcc(*codec)
+            out = cv2.VideoWriter(temp_output, fourcc, fps, (w, h))
+            if out.isOpened():
+                print(f"✅ Using codec: {codec}")
+                break
+            out.release()
+        
+        if not out or not out.isOpened():
+            print(f"[❌] Could not create video writer with any codec for: {temp_output}")
+            cap.release()
+            return
 
         _, sample = cap.read()
         mask = detect_static_watermark(sample) if ENABLE_WATERMARK_REMOVAL else None
@@ -472,6 +493,7 @@ def run_spoof_pipeline(filepath):
         echo_delay = 5
         echo_interval = random.randint(10, 16)
 
+        print(f"🔧 Processing {total_frames} frames...")
         while True:
             ret, frame = cap.read()
             if not ret:
@@ -482,7 +504,7 @@ def run_spoof_pipeline(filepath):
             frame = np.clip(frame, 0, 255).astype(np.uint8)
             if MOTION_PROFILE:
                 frame = apply_motion_forgery(frame, MOTION_PROFILE)
-            frame = apply_behavioral_motion_flow(frame, index, int(cap.get(cv2.CAP_PROP_FRAME_COUNT)))
+            frame = apply_behavioral_motion_flow(frame, index, total_frames)
             frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
             frame = apply_sensor_fingerprint(frame, model="OMNIVISION")
             if PRESET_MODE in DATING_PRESETS:
@@ -508,10 +530,26 @@ def run_spoof_pipeline(filepath):
         # Release everything
         cap.release()
         out.release()
+        
+        # Replace original file with processed one
+        if os.path.exists(temp_output):
+            shutil.move(temp_output, path)
+            print(f"✅ Frame processing complete: {index} frames processed")
+        else:
+            print(f"[❌] Processed video file not created: {temp_output}")
 
 
     print("🔧 Spoofing:", filename)
     frame_variance_spoofer(temp_video_only)
+    
+    # Validate that the processed video is readable
+    test_cap = cv2.VideoCapture(temp_video_only)
+    if not test_cap.isOpened():
+        print(f"[❌] Processed video is not readable: {temp_video_only}")
+        test_cap.release()
+        return
+    test_cap.release()
+    print("✅ Processed video validation passed")
 
     transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
     print("🔧 Running transcode command:", " ".join(transcode_cmd))
