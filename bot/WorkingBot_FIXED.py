@@ -25,6 +25,36 @@ from video_to_gif import convert_video_to_gif, extract_gif_segment, create_gif_f
 from frame_extractor import extract_frames_by_count, extract_frames_by_time, extract_key_frames
 from bulk_processor import bulk_spoof_photos, bulk_spoof_videos, bulk_convert_to_gifs, bulk_extract_frames, create_bulk_output_zip
 
+# Custom bulk function for key frames
+async def bulk_extract_frames_custom(video_paths, method, frame_count, max_workers=2):
+    """Custom bulk frame extraction for key frames method."""
+    results = []
+    for i, video_path in enumerate(video_paths):
+        try:
+            print(f"🎬 Processing video {i+1}/{len(video_paths)}: {os.path.basename(video_path)}")
+            if method == "key_frames":
+                frames = await asyncio.to_thread(extract_key_frames, video_path, 0.3, frame_count)
+            else:
+                frames = await asyncio.to_thread(extract_frames_by_count, video_path, frame_count, method)
+            
+            results.append({
+                "video": video_path,
+                "frames": frames,
+                "count": len(frames),
+                "status": "success"
+            })
+        except Exception as e:
+            print(f"❌ Failed to extract frames from {video_path}: {e}")
+            results.append({
+                "video": video_path,
+                "frames": [],
+                "count": 0,
+                "status": "failed",
+                "error": str(e)
+            })
+    
+    return {"results": results}
+
 # ========= LIVE SERVER / AUTH =========
 BASE_URL = "https://web-production-00cb2.up.railway.app"
 
@@ -170,6 +200,45 @@ def bulk_processing_menu():
         [InlineKeyboardButton("📦🎭 Bulk Video to GIF", callback_data='bulk_vid2gif')],
         [InlineKeyboardButton("📦📸 Bulk Frame Extract", callback_data='bulk_frames')],
         [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def bulk_photo_platform_menu():
+    keyboard = [
+        [InlineKeyboardButton("🧵 IG Threads Mode", callback_data='bulk_photo_ig_threads')],
+        [InlineKeyboardButton("🐦 Twitter Mode", callback_data='bulk_photo_twitter')],
+        [InlineKeyboardButton("👽 Reddit Mode", callback_data='bulk_photo_reddit')],
+        [InlineKeyboardButton("🔙 Back to Bulk Menu", callback_data="bulk_processing")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def bulk_video_preset_menu():
+    keyboard = [
+        [InlineKeyboardButton("🔵 OnlyFans Mode", callback_data='bulk_video_onlyfans')],
+        [InlineKeyboardButton("🎵 TikTok Mode", callback_data='bulk_video_tiktok')],
+        [InlineKeyboardButton("📸 Instagram Mode", callback_data='bulk_video_instagram')],
+        [InlineKeyboardButton("🎥 YouTube Shorts Mode", callback_data='bulk_video_youtube')],
+        [InlineKeyboardButton("🔙 Back to Bulk Menu", callback_data="bulk_processing")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def bulk_gif_platform_menu():
+    keyboard = [
+        [InlineKeyboardButton("📖 Reddit", callback_data='bulk_gif_reddit')],
+        [InlineKeyboardButton("🐦 Twitter", callback_data='bulk_gif_twitter')],
+        [InlineKeyboardButton("🧵 Threads", callback_data='bulk_gif_threads')],
+        [InlineKeyboardButton("💬 Discord", callback_data='bulk_gif_discord')],
+        [InlineKeyboardButton("🔙 Back to Bulk Menu", callback_data="bulk_processing")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def bulk_frame_method_menu():
+    keyboard = [
+        [InlineKeyboardButton("⚡ Quick (10 frames)", callback_data='bulk_frames_quick')],
+        [InlineKeyboardButton("🎯 Custom Count (15)", callback_data='bulk_frames_custom')],
+        [InlineKeyboardButton("🔑 Key Frames", callback_data='bulk_frames_key')],
+        [InlineKeyboardButton("📐 Time Intervals", callback_data='bulk_frames_interval')],
+        [InlineKeyboardButton("🔙 Back to Bulk Menu", callback_data="bulk_processing")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -441,37 +510,86 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data.startswith('bulk_'):
         if query.data == 'bulk_photos':
-            context.user_data['expected_file_type'] = 'bulk_photos'
-            context.user_data['bulk_files'] = []
-            await query.edit_message_text(
-                "📦🖼️ Bulk Photo Spoofing!\n"
-                "📥 Send multiple photos, then type 'START' to begin bulk processing.",
-                reply_markup=back_button()
-            )
+            await query.edit_message_text("📦🖼️ Choose Bulk Photo Platform:", reply_markup=bulk_photo_platform_menu())
         elif query.data == 'bulk_videos':
-            context.user_data['expected_file_type'] = 'bulk_videos'
-            context.user_data['bulk_files'] = []
-            await query.edit_message_text(
-                "📦🎥 Bulk Video Spoofing!\n"
-                "📥 Send multiple videos, then type 'START' to begin bulk processing.",
-                reply_markup=back_button()
-            )
+            await query.edit_message_text("📦🎥 Choose Bulk Video Mode:", reply_markup=bulk_video_preset_menu())
         elif query.data == 'bulk_vid2gif':
-            context.user_data['expected_file_type'] = 'bulk_vid2gif'
-            context.user_data['bulk_files'] = []
-            await query.edit_message_text(
-                "📦🎭 Bulk Video to GIF!\n"
-                "📥 Send multiple videos, then type 'START' to convert all to GIFs.",
-                reply_markup=back_button()
-            )
+            await query.edit_message_text("📦🎭 Choose Bulk GIF Platform:", reply_markup=bulk_gif_platform_menu())
         elif query.data == 'bulk_frames':
-            context.user_data['expected_file_type'] = 'bulk_frames'
-            context.user_data['bulk_files'] = []
-            await query.edit_message_text(
-                "📦📸 Bulk Frame Extraction!\n"
-                "📥 Send multiple videos, then type 'START' to extract frames.",
-                reply_markup=back_button()
-            )
+            await query.edit_message_text("📦📸 Choose Bulk Frame Method:", reply_markup=bulk_frame_method_menu())
+
+    # Handle bulk configuration selections
+    elif query.data.startswith('bulk_photo_'):
+        platform_mapping = {
+            'bulk_photo_ig_threads': "IG_THREADS",
+            'bulk_photo_twitter': "TWITTER",
+            'bulk_photo_reddit': "REDDIT"
+        }
+        selected_platform = platform_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'bulk_photos'
+        context.user_data['bulk_files'] = []
+        context.user_data['bulk_photo_platform'] = selected_platform
+        await query.edit_message_text(
+            f"✅ Bulk Photo Mode: {selected_platform}\n\n"
+            f"📦🖼️ Now send multiple photos for bulk spoofing.\n"
+            f"💬 Type 'START' when ready to process all photos.",
+            reply_markup=back_button()
+        )
+
+    elif query.data.startswith('bulk_video_'):
+        preset_mapping = {
+            'bulk_video_onlyfans': "OF_WASH",
+            'bulk_video_tiktok': "TIKTOK_CLEAN",
+            'bulk_video_instagram': "IG_RAW_LOOK",
+            'bulk_video_youtube': "CINEMATIC_FADE"
+        }
+        selected_preset = preset_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'bulk_videos'
+        context.user_data['bulk_files'] = []
+        context.user_data['bulk_video_preset'] = selected_preset
+        await query.edit_message_text(
+            f"✅ Bulk Video Mode: {selected_preset}\n\n"
+            f"📦🎥 Now send multiple videos for bulk spoofing.\n"
+            f"💬 Type 'START' when ready to process all videos.",
+            reply_markup=back_button()
+        )
+
+    elif query.data.startswith('bulk_gif_'):
+        platform_mapping = {
+            'bulk_gif_reddit': "reddit",
+            'bulk_gif_twitter': "twitter",
+            'bulk_gif_threads': "threads", 
+            'bulk_gif_discord': "discord"
+        }
+        selected_platform = platform_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'bulk_vid2gif'
+        context.user_data['bulk_files'] = []
+        context.user_data['bulk_gif_platform'] = selected_platform
+        await query.edit_message_text(
+            f"✅ Bulk GIF Platform: {selected_platform.capitalize()}\n\n"
+            f"📦🎭 Now send multiple videos to convert to GIFs.\n"
+            f"💬 Type 'START' when ready to convert all videos.",
+            reply_markup=back_button()
+        )
+
+    elif query.data.startswith('bulk_frames_'):
+        method_mapping = {
+            'bulk_frames_quick': "evenly_spaced_10",
+            'bulk_frames_custom': "evenly_spaced_15",
+            'bulk_frames_key': "key_frames",
+            'bulk_frames_interval': "time_intervals"
+        }
+        selected_method = method_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'bulk_frames'
+        context.user_data['bulk_files'] = []
+        context.user_data['bulk_frame_method'] = selected_method
+        method_display = query.data.replace('bulk_frames_', '').replace('_', ' ').title()
+        await query.edit_message_text(
+            f"✅ Bulk Frame Method: {method_display}\n\n"
+            f"📦📸 Now send multiple videos for frame extraction.\n"
+            f"💬 Type 'START' when ready to extract frames.",
+            reply_markup=back_button()
+        )
 
     elif query.data.startswith('preset_'):
         preset_mapping = {
@@ -1052,9 +1170,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
             
         if file_type == 'bulk_photos':
-            await update.message.reply_text(f"📦🖼️ Starting bulk photo spoofing for {len(bulk_files)} files...")
+            platform = context.user_data.get('bulk_photo_platform', 'IG_THREADS')
+            await update.message.reply_text(f"📦🖼️ Starting bulk photo spoofing for {len(bulk_files)} files using {platform} mode...")
             try:
-                result = await asyncio.to_thread(bulk_spoof_photos, bulk_files, "reddit", max_workers=2)
+                result = await asyncio.to_thread(bulk_spoof_photos, bulk_files, platform, max_workers=2)
                 successful = len([r for r in result['results'] if r['status'] == 'success'])
                 
                 # Send results
@@ -1087,9 +1206,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Bulk photo processing failed.", reply_markup=back_button())
                 
         elif file_type == 'bulk_videos':
-            await update.message.reply_text(f"📦🎥 Starting bulk video spoofing for {len(bulk_files)} files...")
+            preset = context.user_data.get('bulk_video_preset', 'TIKTOK_CLEAN')
+            await update.message.reply_text(f"📦🎥 Starting bulk video spoofing for {len(bulk_files)} files using {preset} mode...")
             try:
-                result = await asyncio.to_thread(bulk_spoof_videos, bulk_files, "TIKTOK_CLEAN", max_workers=1)
+                result = await asyncio.to_thread(bulk_spoof_videos, bulk_files, preset, max_workers=1)
                 successful = len([r for r in result['results'] if r['status'] == 'success'])
                 
                 # Send first few results
@@ -1114,9 +1234,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Bulk video processing failed.", reply_markup=back_button())
                 
         elif file_type == 'bulk_vid2gif':
-            await update.message.reply_text(f"📦🎭 Starting bulk video to GIF conversion for {len(bulk_files)} files...")
+            platform = context.user_data.get('bulk_gif_platform', 'general')
+            await update.message.reply_text(f"📦🎭 Starting bulk video to GIF conversion for {len(bulk_files)} files using {platform} optimization...")
             try:
-                result = await asyncio.to_thread(bulk_convert_to_gifs, bulk_files, "general", fps=15, width=400, max_workers=2)
+                result = await asyncio.to_thread(bulk_convert_to_gifs, bulk_files, platform, fps=15, width=400, max_workers=2)
                 successful = len([r for r in result['results'] if r['status'] == 'success'])
                 
                 # Send first few GIFs
@@ -1141,9 +1262,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text("❌ Bulk video to GIF failed.", reply_markup=back_button())
                 
         elif file_type == 'bulk_frames':
-            await update.message.reply_text(f"📦📸 Starting bulk frame extraction for {len(bulk_files)} files...")
+            method = context.user_data.get('bulk_frame_method', 'evenly_spaced_10')
+            if method == 'evenly_spaced_10':
+                method_name, frame_count = "evenly_spaced", 10
+            elif method == 'evenly_spaced_15':
+                method_name, frame_count = "evenly_spaced", 15
+            elif method == 'key_frames':
+                method_name, frame_count = "key_frames", 20
+            elif method == 'time_intervals':
+                method_name, frame_count = "evenly_spaced", 12
+            else:
+                method_name, frame_count = "evenly_spaced", 10
+                
+            await update.message.reply_text(f"📦📸 Starting bulk frame extraction for {len(bulk_files)} files using {method_name} method ({frame_count} frames)...")
             try:
-                result = await asyncio.to_thread(bulk_extract_frames, bulk_files, "evenly_spaced", 10, max_workers=2)
+                if method_name == "key_frames":
+                    # Use custom bulk function for key frames
+                    result = await asyncio.to_thread(bulk_extract_frames_custom, bulk_files, method_name, frame_count, max_workers=2)
+                else:
+                    result = await asyncio.to_thread(bulk_extract_frames, bulk_files, method_name, frame_count, max_workers=2)
                 successful = len([r for r in result['results'] if r['status'] == 'success'])
                 total_frames = sum(r['count'] for r in result['results'] if r['status'] == 'success')
                 
