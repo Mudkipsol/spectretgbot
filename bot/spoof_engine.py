@@ -83,7 +83,7 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
     profile_map = {
         "TIKTOK_IOS": [
             "-c:v", "libx264",
-            "-preset", "slow",
+            "-preset", "fast",  # Changed from slow to fast for better container performance
             "-tune", "film",
             "-g", "48",  # GOP size
             "-x264opts", "keyint=48:min-keyint=24:no-scenecut",
@@ -91,7 +91,7 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
             "-maxrate", "3500k",
             "-bufsize", "6000k",
             "-profile:v", "main",
-            "-level", "3.1",
+            "-level", "4.1",  # Increased from 3.1 to 4.1 for high res support
             "-movflags", "+faststart"
         ],
         "YT_WEB": [
@@ -461,15 +461,21 @@ def run_spoof_pipeline(filepath):
         os.makedirs(temp_dir, exist_ok=True)
         
         try:
-            # Extract frames using FFmpeg
+            # Extract frames using FFmpeg with optimizations for containers
             extract_cmd = [
-                FFMPEG_PATH, "-i", path, 
-                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Ensure even dimensions
+                FFMPEG_PATH, "-i", path,
+                "-vf", "fps=15,scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Reduce to 15fps and ensure even dimensions
+                "-q:v", "2",  # High quality for frame extraction
+                "-threads", "2",  # Limit threads for container compatibility
                 f"{temp_dir}/frame_%04d.png"
             ]
             
-            print("🔧 Extracting frames...")
-            extract_result = subprocess.run(extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print("🔧 Extracting frames (optimized for containers)...")
+            try:
+                extract_result = subprocess.run(extract_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60)
+            except subprocess.TimeoutExpired:
+                print("[❌] Frame extraction timed out after 60 seconds")
+                return
             
             if extract_result.returncode != 0:
                 print(f"[❌] Frame extraction failed: {extract_result.stderr.decode()}")
@@ -545,24 +551,33 @@ def run_spoof_pipeline(filepath):
             temp_output = path + "_processed.mp4"
             reassemble_cmd = [
                 FFMPEG_PATH, "-y",
-                "-framerate", "30",  # Standard framerate
+                "-framerate", "15",  # Match extraction framerate
                 "-i", f"{temp_dir}/frame_%04d.png",
                 "-i", path,  # Original video for audio
                 "-c:v", "libx264",
-                "-preset", "fast",
+                "-preset", "ultrafast",  # Fastest preset for container environments
                 "-pix_fmt", "yuv420p",
+                "-profile:v", "baseline",  # Most compatible profile
+                "-level", "4.0",  # Safe level for most resolutions
+                "-threads", "2",  # Limit threads
                 "-c:a", "copy",  # Copy audio from original
                 "-shortest",  # Match shortest stream
                 temp_output
             ]
             
-            reassemble_result = subprocess.run(reassemble_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            print("🔧 Reassembling video...")
+            try:
+                reassemble_result = subprocess.run(reassemble_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            except subprocess.TimeoutExpired:
+                print("[❌] Video reassembly timed out after 120 seconds")
+                return
             
             if reassemble_result.returncode == 0 and os.path.exists(temp_output):
                 shutil.move(temp_output, path)
                 print(f"✅ Frame processing complete using FFmpeg pipeline")
             else:
                 print(f"[❌] Video reassembly failed: {reassemble_result.stderr.decode()}")
+                print(f"[❌] FFmpeg stdout: {reassemble_result.stdout.decode()}")
                 
         finally:
             # Clean up temporary frames
