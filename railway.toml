@@ -1,0 +1,11 @@
+[build]
+builder = "dockerfile"
+
+[deploy]
+startCommand = "python WorkingBot_FIXED.py"
+
+[[services]]
+name = "spectre-telegram-bot"
+
+[services.variables]
+PYTHONUNBUFFERED = "1"
