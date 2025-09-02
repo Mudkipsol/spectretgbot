@@ -339,6 +339,111 @@ def apply_behavioral_motion_flow(frame, index, total_frames):
     return cv2.warpAffine(frame, M, (w, h), borderMode=cv2.BORDER_REFLECT101)
 
 
+# === ADVANCED PLATFORM-SPECIFIC SPOOFING ===
+
+def apply_platform_specific_transform(frame, platform_profile, frame_index, total_frames):
+    """
+    Apply platform-specific transformations that are imperceptible to humans
+    but significantly change digital fingerprints for platform detection.
+    """
+    h, w = frame.shape[:2]
+    
+    if platform_profile == "TIKTOK_IOS":
+        # TikTok: Subtle rotation + aspect ratio shift
+        # Rotate by 0.1-0.2 degrees (imperceptible but changes hash)
+        rotation_angle = 0.15 + 0.05 * np.sin(2 * np.pi * frame_index / total_frames)
+        center = (w // 2, h // 2)
+        rotation_matrix = cv2.getRotationMatrix2D(center, rotation_angle, 1.0)
+        frame = cv2.warpAffine(frame, rotation_matrix, (w, h), borderMode=cv2.BORDER_REFLECT_101)
+        
+        # Micro crop (2-4 pixels) with intelligent content preservation
+        crop_x = random.randint(1, 3)
+        crop_y = random.randint(1, 3)
+        frame = frame[crop_y:h-crop_y, crop_x:w-crop_x]
+        frame = cv2.resize(frame, (w, h))
+        
+    elif platform_profile == "IG_REELS":
+        # Instagram: Slight aspect ratio change + micro scale
+        # Scale by 0.998-1.002 (changes dimensions slightly)
+        scale_factor = 0.999 + 0.002 * np.sin(2 * np.pi * frame_index / total_frames)
+        new_w = int(w * scale_factor)
+        new_h = int(h * scale_factor)
+        frame = cv2.resize(frame, (new_w, new_h))
+        
+        # Pad back to original size with edge extension
+        if new_w < w or new_h < h:
+            top = (h - new_h) // 2
+            bottom = h - new_h - top
+            left = (w - new_w) // 2
+            right = w - new_w - left
+            frame = cv2.copyMakeBorder(frame, top, bottom, left, right, cv2.BORDER_REFLECT_101)
+        else:
+            # Crop if scaled up
+            start_x = (new_w - w) // 2
+            start_y = (new_h - h) // 2
+            frame = frame[start_y:start_y+h, start_x:start_x+w]
+            
+    elif platform_profile == "YT_WEB":
+        # YouTube: Perspective shift + micro rotation
+        # Apply very subtle perspective transformation
+        offset = 2 + int(2 * np.sin(2 * np.pi * frame_index / total_frames))
+        src_points = np.float32([[0, 0], [w, 0], [0, h], [w, h]])
+        dst_points = np.float32([
+            [offset, 0], [w-offset, offset], 
+            [0, h-offset], [w, h]
+        ])
+        perspective_matrix = cv2.getPerspectiveTransform(src_points, dst_points)
+        frame = cv2.warpPerspective(frame, perspective_matrix, (w, h), borderMode=cv2.BORDER_REFLECT_101)
+        
+    return frame
+
+
+def apply_temporal_speed_variance(video_path, platform_profile, output_path, ffmpeg_path):
+    """
+    Apply imperceptible speed changes that break temporal fingerprints
+    while maintaining natural playback feel.
+    """
+    if platform_profile == "TIKTOK_IOS":
+        # TikTok: 0.995-1.005x speed (0.5% variance, imperceptible)
+        speed_factor = random.uniform(0.995, 1.005)
+        
+    elif platform_profile == "IG_REELS":
+        # Instagram: 0.996-1.004x speed (0.4% variance)
+        speed_factor = random.uniform(0.996, 1.004)
+        
+    elif platform_profile == "YT_WEB":
+        # YouTube: 0.997-1.003x speed (0.3% variance, most conservative)
+        speed_factor = random.uniform(0.997, 1.003)
+        
+    else:
+        speed_factor = 1.0
+    
+    # Only apply if variance is meaningful
+    if abs(speed_factor - 1.0) > 0.001:
+        print(f"🔧 Applying {speed_factor:.4f}x speed adjustment (imperceptible)")
+        
+        cmd = [
+            ffmpeg_path, "-i", video_path,
+            "-filter:v", f"setpts={1/speed_factor}*PTS",
+            "-filter:a", f"atempo={speed_factor}",
+            "-c:v", "libx264", "-preset", "fast",
+            "-c:a", "aac", "-y", output_path
+        ]
+        
+        try:
+            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=120)
+            if result.returncode == 0 and os.path.exists(output_path):
+                return True
+            else:
+                print(f"[⚠️] Speed adjustment failed, using original")
+                return False
+        except subprocess.TimeoutExpired:
+            print(f"[⚠️] Speed adjustment timed out, using original")
+            return False
+    
+    return False  # No speed change applied
+
+
 def compute_ai_detectability_score(video_path):
     cap = cv2.VideoCapture(video_path)
     frame_hashes, brightness_levels = [], []
@@ -555,6 +660,10 @@ def run_spoof_pipeline(filepath):
                     
                 # Apply style morphing to ALL processed frames for consistency
                 frame = apply_style_morph(frame, STYLE_MORPH_PRESET)
+                
+                # 🚀 ADVANCED SPOOFING: Apply platform-specific transforms
+                # This is the key to breaking platform detection
+                frame = apply_platform_specific_transform(frame, TRANSCODE_PROFILE, i, len(frame_files))
                     
                 if i % 15 == 0:  # Less frequent sensor fingerprinting
                     frame = apply_sensor_fingerprint(frame, model="OMNIVISION")
@@ -621,8 +730,17 @@ def run_spoof_pipeline(filepath):
         return
     test_cap.release()
     print("✅ Processed video validation passed")
+    
+    # 🚀 ADVANCED SPOOFING: Apply temporal speed variance (imperceptible to humans)
+    speed_adjusted_path = os.path.join(output_dir, f"speed_adjusted_{spoof_id}.mp4")
+    speed_applied = apply_temporal_speed_variance(temp_video_only, TRANSCODE_PROFILE, speed_adjusted_path, FFMPEG_PATH)
+    
+    # Use speed-adjusted video for transcoding if successful
+    source_video = speed_adjusted_path if speed_applied else temp_video_only
+    if speed_applied:
+        print("✅ Temporal fingerprint modified")
 
-    transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
+    transcode_cmd = build_transcode_command(source_video, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
     print("🔧 Running transcode command:", " ".join(transcode_cmd))
     
     try:
@@ -696,6 +814,9 @@ def run_spoof_pipeline(filepath):
 
 
     os.remove(temp_video_only)
+    # Clean up speed-adjusted file if it was created
+    if speed_applied and os.path.exists(speed_adjusted_path):
+        os.remove(speed_adjusted_path)
     shutil.move(shuffled_output, final_output)
 
 
