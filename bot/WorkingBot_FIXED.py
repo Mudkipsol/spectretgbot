@@ -385,6 +385,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
+    
+    # Debug logging for all callbacks
+    print(f"[DEBUG] Callback received: {query.data}")
 
     if query.data == 'manage_plan':
         username = update.effective_user.username
@@ -544,15 +547,25 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             'bulk_video_youtube': "CINEMATIC_FADE"
         }
         selected_preset = preset_mapping.get(query.data)
+        
+        # Debug logging
+        print(f"[DEBUG] Bulk video callback: {query.data}")
+        print(f"[DEBUG] Selected preset: {selected_preset}")
+        
         context.user_data['expected_file_type'] = 'bulk_videos'
         context.user_data['bulk_files'] = []
         context.user_data['bulk_video_preset'] = selected_preset
-        await query.edit_message_text(
-            f"✅ Bulk Video Mode: {selected_preset}\n\n"
-            f"📦🎥 Now send multiple videos for bulk spoofing.\n"
-            f"💬 Type 'START' when ready to process all videos.",
-            reply_markup=back_button()
-        )
+        
+        try:
+            await query.edit_message_text(
+                f"✅ Bulk Video Mode: {selected_preset}\n\n"
+                f"📦🎥 Now send multiple videos for bulk spoofing.\n"
+                f"💬 Type 'START' when ready to process all videos.",
+                reply_markup=back_button()
+            )
+        except Exception as e:
+            print(f"[ERROR] Failed to edit message: {e}")
+            await query.answer("Configuration saved! Please go back to main menu.", show_alert=True)
 
     elif query.data.startswith('bulk_gif_'):
         platform_mapping = {
@@ -802,7 +815,8 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
     else:
-        await query.edit_message_text("❌ Unknown action.", reply_markup=back_button())
+        print(f"[DEBUG] Unhandled callback: {query.data}")
+        await query.edit_message_text(f"❌ Unknown action: {query.data}", reply_markup=back_button())
 
 # ---------------- Files & Text ----------------
 
