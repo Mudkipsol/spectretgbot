@@ -8,6 +8,7 @@ import os
 import json
 import time
 import zipfile
+import shutil
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import threading
@@ -167,6 +168,17 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
             tracker.update_progress(current_item=os.path.basename(video_path))
             print(f"🎬 Processing: {os.path.basename(video_path)}")
             
+            # Pre-sanitize filename to avoid encoding issues
+            original_path = video_path
+            if any(ord(char) > 127 for char in os.path.basename(video_path)):
+                print(f"[🔧] Detected non-ASCII filename, creating sanitized copy...")
+                import uuid
+                file_ext = os.path.splitext(video_path)[1]
+                sanitized_name = f"temp_video_{uuid.uuid4().hex[:8]}{file_ext}"
+                video_path = os.path.join(os.path.dirname(video_path), sanitized_name)
+                shutil.copy2(original_path, video_path)
+                print(f"[🔧] Using sanitized filename: {os.path.basename(video_path)}")
+            
             # Set spoofing engine globals based on preset
             if preset == "TIKTOK_CLEAN":
                 se.PRESET_MODE = "TIKTOK_SAFE"
@@ -193,8 +205,23 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
             os.makedirs("output", exist_ok=True)
             existing_files = set(os.listdir("output"))
             
-            # Process video
-            run_spoof_pipeline(video_path)
+            # Process video with enhanced error handling
+            try:
+                run_spoof_pipeline(video_path)
+            except UnicodeDecodeError as ude:
+                print(f"[⚠️] Unicode error for {os.path.basename(video_path)}: {str(ude)}")
+                # Try to copy the file with a sanitized name and retry
+                import uuid
+                sanitized_path = os.path.join(os.path.dirname(video_path), f"sanitized_{uuid.uuid4().hex[:8]}.mp4")
+                shutil.copy2(video_path, sanitized_path)
+                print(f"[🔧] Retrying with sanitized copy: {os.path.basename(sanitized_path)}")
+                run_spoof_pipeline(sanitized_path)
+                # Clean up the sanitized copy after processing
+                if os.path.exists(sanitized_path):
+                    os.remove(sanitized_path)
+            except Exception as e:
+                print(f"[⚠️] Processing error for {os.path.basename(video_path)}: {str(e)}")
+                raise e
             
             # Find new output files created after processing
             current_files = set(os.listdir("output"))
@@ -222,16 +249,33 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
                 latest_output = output_candidates[0] if len(output_candidates) == 1 else max(output_candidates, key=os.path.getctime)
                 print(f"✅ Video processed: {os.path.basename(latest_output)}")
                 tracker.update_progress(completed=1)
-                return {"original": video_path, "spoofed": latest_output, "status": "success"}
+                
+                # Clean up sanitized file if created
+                if video_path != original_path and os.path.exists(video_path):
+                    os.remove(video_path)
+                    print(f"[🧹] Cleaned up sanitized file")
+                
+                return {"original": original_path, "spoofed": latest_output, "status": "success"}
             else:
-                print(f"❌ No output file found for: {os.path.basename(video_path)}")
+                print(f"❌ No output file found for: {os.path.basename(original_path)}")
                 tracker.update_progress(failed=1)
-                return {"original": video_path, "spoofed": None, "status": "failed", "error": "No output file generated"}
+                
+                # Clean up sanitized file if created
+                if video_path != original_path and os.path.exists(video_path):
+                    os.remove(video_path)
+                
+                return {"original": original_path, "spoofed": None, "status": "failed", "error": "No output file generated"}
                 
         except Exception as e:
-            print(f"❌ Error processing {os.path.basename(video_path)}: {str(e)}")
+            print(f"❌ Error processing {os.path.basename(original_path)}: {str(e)}")
             tracker.update_progress(failed=1)
-            return {"original": video_path, "spoofed": None, "status": "failed", "error": str(e)}
+            
+            # Clean up sanitized file if created
+            if video_path != original_path and os.path.exists(video_path):
+                os.remove(video_path)
+                print(f"[🧹] Cleaned up sanitized file after error")
+            
+            return {"original": original_path, "spoofed": None, "status": "failed", "error": str(e)}
     
     # Process videos sequentially to avoid file conflicts (max_workers=1 for videos)
     if max_workers > 1:
