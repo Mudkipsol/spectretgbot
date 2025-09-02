@@ -511,17 +511,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 reply_markup=back_button()
             )
 
-    elif query.data.startswith('bulk_'):
-        if query.data == 'bulk_photos':
-            await query.edit_message_text("📦🖼️ Choose Bulk Photo Platform:", reply_markup=bulk_photo_platform_menu())
-        elif query.data == 'bulk_videos':
-            await query.edit_message_text("📦🎥 Choose Bulk Video Mode:", reply_markup=bulk_video_preset_menu())
-        elif query.data == 'bulk_vid2gif':
-            await query.edit_message_text("📦🎭 Choose Bulk GIF Platform:", reply_markup=bulk_gif_platform_menu())
-        elif query.data == 'bulk_frames':
-            await query.edit_message_text("📦📸 Choose Bulk Frame Method:", reply_markup=bulk_frame_method_menu())
-
-    # Handle bulk configuration selections
+    # Handle bulk configuration selections (specific handlers first)
     elif query.data.startswith('bulk_photo_'):
         platform_mapping = {
             'bulk_photo_ig_threads': "IG_THREADS",
@@ -603,6 +593,17 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"💬 Type 'START' when ready to extract frames.",
             reply_markup=back_button()
         )
+
+    # Handle general bulk operation selections (after specific handlers)
+    elif query.data.startswith('bulk_'):
+        if query.data == 'bulk_photos':
+            await query.edit_message_text("📦🖼️ Choose Bulk Photo Platform:", reply_markup=bulk_photo_platform_menu())
+        elif query.data == 'bulk_videos':
+            await query.edit_message_text("📦🎥 Choose Bulk Video Mode:", reply_markup=bulk_video_preset_menu())
+        elif query.data == 'bulk_vid2gif':
+            await query.edit_message_text("📦🎭 Choose Bulk GIF Platform:", reply_markup=bulk_gif_platform_menu())
+        elif query.data == 'bulk_frames':
+            await query.edit_message_text("📦📸 Choose Bulk Frame Method:", reply_markup=bulk_frame_method_menu())
 
     elif query.data.startswith('preset_'):
         preset_mapping = {
