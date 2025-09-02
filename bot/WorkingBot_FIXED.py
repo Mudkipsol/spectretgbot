@@ -19,6 +19,12 @@ from photo_spoofer import batch_spoof_image
 from spoof_engine import run_spoof_pipeline
 import spoof_engine as se  # used to set runtime globals for the engine
 
+# Import new modules
+from gif_spoofer import spoof_gif_advanced, batch_spoof_gifs
+from video_to_gif import convert_video_to_gif, extract_gif_segment, create_gif_from_video_clips
+from frame_extractor import extract_frames_by_count, extract_frames_by_time, extract_key_frames
+from bulk_processor import bulk_spoof_photos, bulk_spoof_videos, bulk_convert_to_gifs, bulk_extract_frames, create_bulk_output_zip
+
 # ========= LIVE SERVER / AUTH =========
 BASE_URL = "https://web-production-00cb2.up.railway.app"
 
@@ -93,10 +99,13 @@ def send_support_email(user, message):
 
 def main_menu():
     keyboard = [
-        [InlineKeyboardButton("🎥 Send Video", callback_data='send_video')],
-        [InlineKeyboardButton("🖼️ Photo Spoofer", callback_data='photo_spoofer')],
-        [InlineKeyboardButton("📦 Batch Spoof", callback_data='batch_spoof')],
-        [InlineKeyboardButton("⚙️ Spoof Settings", callback_data='spoof_settings')],
+        [InlineKeyboardButton("🎥 Video Spoof", callback_data='send_video')],
+        [InlineKeyboardButton("🖼️ Photo Spoof", callback_data='photo_spoofer')],
+        [InlineKeyboardButton("🎭 GIF Spoof", callback_data='gif_spoof')],
+        [InlineKeyboardButton("🎬➡️🎭 Video to GIF", callback_data='video_to_gif')],
+        [InlineKeyboardButton("📸 Frame Extractor", callback_data='frame_extractor')],
+        [InlineKeyboardButton("📦 Bulk Processing", callback_data='bulk_processing')],
+        [InlineKeyboardButton("⚙️ Settings", callback_data='spoof_settings')],
         [InlineKeyboardButton("🔧 My License", callback_data='my_license')],
         [InlineKeyboardButton("💬 Help & Support", callback_data='help')]
     ]
@@ -120,7 +129,47 @@ def photo_preset_menu():
     keyboard = [
         [InlineKeyboardButton("🧵 IG Threads Mode", callback_data='photo_ig_threads')],
         [InlineKeyboardButton("🐦 Twitter Mode", callback_data='photo_twitter')],
-        [InlineKeyboardButton("👽 Reddit Mode", callback_data='photo_reddit')]
+        [InlineKeyboardButton("👽 Reddit Mode", callback_data='photo_reddit')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def gif_platform_menu():
+    keyboard = [
+        [InlineKeyboardButton("📖 Reddit", callback_data='gif_reddit')],
+        [InlineKeyboardButton("🐦 Twitter", callback_data='gif_twitter')],
+        [InlineKeyboardButton("🧵 Threads", callback_data='gif_threads')],
+        [InlineKeyboardButton("💬 Discord", callback_data='gif_discord')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def video_to_gif_menu():
+    keyboard = [
+        [InlineKeyboardButton("🎬 Full Video to GIF", callback_data='vid2gif_full')],
+        [InlineKeyboardButton("✂️ Custom Segment", callback_data='vid2gif_segment')],
+        [InlineKeyboardButton("🎯 Key Moments", callback_data='vid2gif_moments')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def frame_extraction_menu():
+    keyboard = [
+        [InlineKeyboardButton("⚡ Quick Extract (10 frames)", callback_data='frames_quick')],
+        [InlineKeyboardButton("🎯 Custom Count", callback_data='frames_custom')],
+        [InlineKeyboardButton("🔑 Key Frames", callback_data='frames_key')],
+        [InlineKeyboardButton("📐 Time Intervals", callback_data='frames_interval')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def bulk_processing_menu():
+    keyboard = [
+        [InlineKeyboardButton("📦🖼️ Bulk Photo Spoof", callback_data='bulk_photos')],
+        [InlineKeyboardButton("📦🎥 Bulk Video Spoof", callback_data='bulk_videos')],
+        [InlineKeyboardButton("📦🎭 Bulk Video to GIF", callback_data='bulk_vid2gif')],
+        [InlineKeyboardButton("📦📸 Bulk Frame Extract", callback_data='bulk_frames')],
+        [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -296,6 +345,18 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif query.data == 'photo_spoofer':
         await query.edit_message_text("🎨 Choose your Photo Spoofing Mode:", reply_markup=photo_preset_menu())
 
+    elif query.data == 'gif_spoof':
+        await query.edit_message_text("🎭 Choose your GIF Platform:", reply_markup=gif_platform_menu())
+
+    elif query.data == 'video_to_gif':
+        await query.edit_message_text("🎬➡️🎭 Choose GIF Conversion Mode:", reply_markup=video_to_gif_menu())
+
+    elif query.data == 'frame_extractor':
+        await query.edit_message_text("📸 Choose Frame Extraction Method:", reply_markup=frame_extraction_menu())
+
+    elif query.data == 'bulk_processing':
+        await query.edit_message_text("📦 Choose Bulk Operation:", reply_markup=bulk_processing_menu())
+
     elif query.data.startswith('photo_'):
         preset_mapping = {
             'photo_ig_threads': "IG_THREADS",
@@ -310,6 +371,106 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📥 Please send your photo.",
             reply_markup=back_button()
         )
+
+    elif query.data.startswith('gif_'):
+        platform_mapping = {
+            'gif_reddit': "reddit",
+            'gif_twitter': "twitter", 
+            'gif_threads': "threads",
+            'gif_discord': "discord"
+        }
+        selected_platform = platform_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'gif'
+        context.user_data['selected_gif_platform'] = selected_platform
+        await query.edit_message_text(
+            f"✅ Platform set: {selected_platform.capitalize()}!\n"
+            f"🎭 Please send your GIF to spoof.",
+            reply_markup=back_button()
+        )
+
+    elif query.data.startswith('vid2gif_'):
+        context.user_data['expected_file_type'] = 'video_for_gif'
+        context.user_data['gif_conversion_mode'] = query.data
+        if query.data == 'vid2gif_full':
+            await query.edit_message_text(
+                "🎬➡️🎭 Full Video to GIF Mode!\n"
+                "📥 Send your video to convert to GIF.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'vid2gif_segment':
+            await query.edit_message_text(
+                "✂️ Custom Segment Mode!\n"
+                "📥 Send your video, then specify start/end times.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'vid2gif_moments':
+            await query.edit_message_text(
+                "🎯 Key Moments Mode!\n" 
+                "📥 Send your video to extract key moments as GIF.",
+                reply_markup=back_button()
+            )
+
+    elif query.data.startswith('frames_'):
+        context.user_data['expected_file_type'] = 'video_for_frames'
+        context.user_data['frame_extraction_mode'] = query.data
+        if query.data == 'frames_quick':
+            await query.edit_message_text(
+                "⚡ Quick Extract Mode!\n"
+                "📥 Send your video to extract 10 frames.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'frames_custom':
+            await query.edit_message_text(
+                "🎯 Custom Count Mode!\n"
+                "📥 Send your video, then specify frame count.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'frames_key':
+            await query.edit_message_text(
+                "🔑 Key Frames Mode!\n"
+                "📥 Send your video to extract important frames.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'frames_interval':
+            await query.edit_message_text(
+                "📐 Time Intervals Mode!\n"
+                "📥 Send your video, then specify interval.",
+                reply_markup=back_button()
+            )
+
+    elif query.data.startswith('bulk_'):
+        if query.data == 'bulk_photos':
+            context.user_data['expected_file_type'] = 'bulk_photos'
+            context.user_data['bulk_files'] = []
+            await query.edit_message_text(
+                "📦🖼️ Bulk Photo Spoofing!\n"
+                "📥 Send multiple photos, then type 'START' to begin bulk processing.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'bulk_videos':
+            context.user_data['expected_file_type'] = 'bulk_videos'
+            context.user_data['bulk_files'] = []
+            await query.edit_message_text(
+                "📦🎥 Bulk Video Spoofing!\n"
+                "📥 Send multiple videos, then type 'START' to begin bulk processing.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'bulk_vid2gif':
+            context.user_data['expected_file_type'] = 'bulk_vid2gif'
+            context.user_data['bulk_files'] = []
+            await query.edit_message_text(
+                "📦🎭 Bulk Video to GIF!\n"
+                "📥 Send multiple videos, then type 'START' to convert all to GIFs.",
+                reply_markup=back_button()
+            )
+        elif query.data == 'bulk_frames':
+            context.user_data['expected_file_type'] = 'bulk_frames'
+            context.user_data['bulk_files'] = []
+            await query.edit_message_text(
+                "📦📸 Bulk Frame Extraction!\n"
+                "📥 Send multiple videos, then type 'START' to extract frames.",
+                reply_markup=back_button()
+            )
 
     elif query.data.startswith('preset_'):
         preset_mapping = {
@@ -590,9 +751,9 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             se.TRANSCODE_PROFILE = "YT_WEB"
             se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
             se.ENABLE_RESOLUTION_TWEAK = True
-            se.ENABLE_FPS_JITTER = True
-            se.ENABLE_VISUAL_ECHO = True
-            se.FRAME_VARIANCE_STRENGTH = "light"
+            se.ENABLE_FPS_JITTER = False  # Disable FPS jitter to reduce flickering
+            se.ENABLE_VISUAL_ECHO = False  # Disable visual echo to prevent artifacts
+            se.FRAME_VARIANCE_STRENGTH = "very_light"  # Reduce variance strength
         elif preset == "OF_WASH":
             se.PRESET_MODE = "OF_WASH"
             se.FORGERY_PROFILE = "OF_CREATOR"
@@ -682,6 +843,133 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             logging.error(f"Error during photo spoofing: {e}")
             await update.message.reply_text("❌ Something went wrong while spoofing the photo. Please try again.", reply_markup=back_button())
 
+    # -------- GIF Spoofing --------
+    elif file_type == 'gif':
+        platform = context.user_data.get('selected_gif_platform', "reddit")
+        await update.message.reply_text(f"🎭 Spoofing GIF for {platform.upper()}...")
+        try:
+            output_path = await asyncio.to_thread(spoof_gif_advanced, input_path, platform, "medium", True)
+            with open(output_path, "rb") as f:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=f,
+                    filename=f"spoofed_{os.path.basename(output_path)}",
+                    caption="✅ GIF spoof complete!",
+                    reply_markup=back_button()
+                )
+            
+            # Deduct one credit
+            ok, info = await deduct_credits_for_user(update.effective_user.id, 1)
+            if ok:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"💳 Credit consumed. Remaining: {info}")
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logging.error(f"Error during GIF spoofing: {e}")
+            await update.message.reply_text("❌ GIF spoofing failed. Please try again.", reply_markup=back_button())
+
+    # -------- Video to GIF Conversion --------
+    elif file_type == 'video_for_gif':
+        mode = context.user_data.get('gif_conversion_mode', 'vid2gif_full')
+        await update.message.reply_text(f"🎬➡️🎭 Converting video to GIF...")
+        try:
+            if mode == 'vid2gif_full':
+                output_path = await asyncio.to_thread(convert_video_to_gif, input_path, fps=15, width=400, platform="general")
+            elif mode == 'vid2gif_moments':
+                output_path = await asyncio.to_thread(convert_video_to_gif, input_path, fps=12, width=400, platform="general")
+            else:  # vid2gif_segment - for now treat as full, can enhance later
+                output_path = await asyncio.to_thread(convert_video_to_gif, input_path, fps=15, width=400, platform="general")
+            
+            with open(output_path, "rb") as f:
+                await context.bot.send_document(
+                    chat_id=update.effective_chat.id,
+                    document=f,
+                    filename=f"converted_{os.path.basename(output_path)}",
+                    caption="✅ Video to GIF conversion complete!",
+                    reply_markup=back_button()
+                )
+            
+            # Deduct one credit
+            ok, info = await deduct_credits_for_user(update.effective_user.id, 1)
+            if ok:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"💳 Credit consumed. Remaining: {info}")
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logging.error(f"Error during video to GIF conversion: {e}")
+            await update.message.reply_text("❌ Video to GIF conversion failed. Please try again.", reply_markup=back_button())
+
+    # -------- Frame Extraction --------
+    elif file_type == 'video_for_frames':
+        mode = context.user_data.get('frame_extraction_mode', 'frames_quick')
+        await update.message.reply_text(f"📸 Extracting frames...")
+        try:
+            if mode == 'frames_quick':
+                extracted_frames = await asyncio.to_thread(extract_frames_by_count, input_path, 10, "evenly_spaced")
+            elif mode == 'frames_key':
+                extracted_frames = await asyncio.to_thread(extract_key_frames, input_path, 0.3, 20)
+            else:  # frames_custom, frames_interval - default to 15 frames evenly spaced
+                extracted_frames = await asyncio.to_thread(extract_frames_by_count, input_path, 15, "evenly_spaced")
+            
+            # Send up to 10 frames as photos, rest as ZIP
+            frames_sent = 0
+            for frame_path in extracted_frames[:10]:
+                try:
+                    with open(frame_path, "rb") as f:
+                        await context.bot.send_photo(
+                            chat_id=update.effective_chat.id,
+                            photo=f
+                        )
+                    frames_sent += 1
+                except Exception as e:
+                    logging.error(f"Failed to send frame {frame_path}: {e}")
+            
+            if len(extracted_frames) > 10:
+                # Create ZIP for remaining frames
+                zip_path = await asyncio.to_thread(create_bulk_output_zip, 
+                    [{"status": "success", "frames": extracted_frames[10:]}], "frame_extraction")
+                if zip_path:
+                    with open(zip_path, "rb") as f:
+                        await context.bot.send_document(
+                            chat_id=update.effective_chat.id,
+                            document=f,
+                            filename=f"remaining_frames.zip",
+                            caption=f"📦 {len(extracted_frames)-10} additional frames"
+                        )
+            
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"✅ Frame extraction complete! {len(extracted_frames)} frames extracted.",
+                reply_markup=back_button()
+            )
+            
+            # Deduct one credit
+            ok, info = await deduct_credits_for_user(update.effective_user.id, 1)
+            if ok:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"💳 Credit consumed. Remaining: {info}")
+                except Exception:
+                    pass
+                    
+        except Exception as e:
+            logging.error(f"Error during frame extraction: {e}")
+            await update.message.reply_text("❌ Frame extraction failed. Please try again.", reply_markup=back_button())
+
+    # -------- Bulk Processing File Collection --------
+    elif file_type in ['bulk_photos', 'bulk_videos', 'bulk_vid2gif', 'bulk_frames']:
+        bulk_files = context.user_data.setdefault('bulk_files', [])
+        bulk_files.append(input_path)
+        await update.message.reply_text(
+            f"✅ Added: {os.path.basename(input_path)}\n"
+            f"📦 Bulk queue: {len(bulk_files)} files\n"
+            f"💬 Type 'START' to begin bulk processing.",
+            reply_markup=back_button()
+        )
+
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     username = update.effective_user.username or update.effective_user.first_name
@@ -731,6 +1019,139 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("❌ Failed to send message. Please try again later.")
 
         await update.message.reply_text("What would you like to do next?", reply_markup=main_menu())
+        return
+
+    # Handle bulk processing START command
+    text = update.message.text.strip().upper()
+    if text == "START":
+        file_type = context.user_data.get('expected_file_type', '')
+        bulk_files = context.user_data.get('bulk_files', [])
+        
+        if not bulk_files:
+            await update.message.reply_text("📦 No files in bulk queue. Send files first.", reply_markup=back_button())
+            return
+            
+        if file_type == 'bulk_photos':
+            await update.message.reply_text(f"📦🖼️ Starting bulk photo spoofing for {len(bulk_files)} files...")
+            try:
+                result = await asyncio.to_thread(bulk_spoof_photos, bulk_files, "reddit", max_workers=2)
+                successful = len([r for r in result['results'] if r['status'] == 'success'])
+                
+                # Send results
+                for r in result['results'][:5]:  # Send first 5 results
+                    if r['status'] == 'success' and os.path.exists(r['spoofed']):
+                        with open(r['spoofed'], 'rb') as f:
+                            await context.bot.send_photo(chat_id=update.effective_chat.id, photo=f)
+                
+                # Create ZIP for all results
+                if result.get('report_path'):
+                    zip_path = await asyncio.to_thread(create_bulk_output_zip, result['results'], "bulk_photos")
+                    if zip_path:
+                        with open(zip_path, 'rb') as f:
+                            await context.bot.send_document(
+                                chat_id=update.effective_chat.id,
+                                document=f,
+                                filename="bulk_photos_spoofed.zip",
+                                caption=f"📦 {successful}/{len(bulk_files)} photos spoofed successfully!"
+                            )
+                
+                # Deduct credits
+                if successful > 0:
+                    ok, info = await deduct_credits_for_user(update.effective_user.id, successful)
+                    if ok:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, 
+                            text=f"💳 Credits consumed: {successful}. Remaining: {info}")
+                        
+            except Exception as e:
+                logging.error(f"Bulk photo processing error: {e}")
+                await update.message.reply_text("❌ Bulk photo processing failed.", reply_markup=back_button())
+                
+        elif file_type == 'bulk_videos':
+            await update.message.reply_text(f"📦🎥 Starting bulk video spoofing for {len(bulk_files)} files...")
+            try:
+                result = await asyncio.to_thread(bulk_spoof_videos, bulk_files, "TIKTOK_CLEAN", max_workers=1)
+                successful = len([r for r in result['results'] if r['status'] == 'success'])
+                
+                # Send first few results
+                for r in result['results'][:3]:
+                    if r['status'] == 'success' and os.path.exists(r['spoofed']):
+                        with open(r['spoofed'], 'rb') as f:
+                            await context.bot.send_document(chat_id=update.effective_chat.id, document=f)
+                
+                await context.bot.send_message(chat_id=update.effective_chat.id, 
+                    text=f"✅ Bulk video spoofing complete: {successful}/{len(bulk_files)} successful",
+                    reply_markup=back_button())
+                
+                # Deduct credits
+                if successful > 0:
+                    ok, info = await deduct_credits_for_user(update.effective_user.id, successful)
+                    if ok:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, 
+                            text=f"💳 Credits consumed: {successful}. Remaining: {info}")
+                        
+            except Exception as e:
+                logging.error(f"Bulk video processing error: {e}")
+                await update.message.reply_text("❌ Bulk video processing failed.", reply_markup=back_button())
+                
+        elif file_type == 'bulk_vid2gif':
+            await update.message.reply_text(f"📦🎭 Starting bulk video to GIF conversion for {len(bulk_files)} files...")
+            try:
+                result = await asyncio.to_thread(bulk_convert_to_gifs, bulk_files, "general", fps=15, width=400, max_workers=2)
+                successful = len([r for r in result['results'] if r['status'] == 'success'])
+                
+                # Send first few GIFs
+                for r in result['results'][:5]:
+                    if r['status'] == 'success' and os.path.exists(r['gif']):
+                        with open(r['gif'], 'rb') as f:
+                            await context.bot.send_document(chat_id=update.effective_chat.id, document=f)
+                
+                await context.bot.send_message(chat_id=update.effective_chat.id, 
+                    text=f"✅ Bulk GIF conversion complete: {successful}/{len(bulk_files)} successful",
+                    reply_markup=back_button())
+                
+                # Deduct credits
+                if successful > 0:
+                    ok, info = await deduct_credits_for_user(update.effective_user.id, successful)
+                    if ok:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, 
+                            text=f"💳 Credits consumed: {successful}. Remaining: {info}")
+                        
+            except Exception as e:
+                logging.error(f"Bulk video to GIF error: {e}")
+                await update.message.reply_text("❌ Bulk video to GIF failed.", reply_markup=back_button())
+                
+        elif file_type == 'bulk_frames':
+            await update.message.reply_text(f"📦📸 Starting bulk frame extraction for {len(bulk_files)} files...")
+            try:
+                result = await asyncio.to_thread(bulk_extract_frames, bulk_files, "evenly_spaced", 10, max_workers=2)
+                successful = len([r for r in result['results'] if r['status'] == 'success'])
+                total_frames = sum(r['count'] for r in result['results'] if r['status'] == 'success')
+                
+                # Create ZIP with all frames
+                zip_path = await asyncio.to_thread(create_bulk_output_zip, result['results'], "bulk_frames")
+                if zip_path:
+                    with open(zip_path, 'rb') as f:
+                        await context.bot.send_document(
+                            chat_id=update.effective_chat.id,
+                            document=f,
+                            filename="bulk_extracted_frames.zip",
+                            caption=f"📦 {total_frames} frames extracted from {successful}/{len(bulk_files)} videos!"
+                        )
+                
+                # Deduct credits
+                if successful > 0:
+                    ok, info = await deduct_credits_for_user(update.effective_user.id, successful)
+                    if ok:
+                        await context.bot.send_message(chat_id=update.effective_chat.id, 
+                            text=f"💳 Credits consumed: {successful}. Remaining: {info}")
+                        
+            except Exception as e:
+                logging.error(f"Bulk frame extraction error: {e}")
+                await update.message.reply_text("❌ Bulk frame extraction failed.", reply_markup=back_button())
+        
+        # Clear bulk files after processing
+        context.user_data['bulk_files'] = []
+        context.user_data['expected_file_type'] = None
         return
 
     await update.message.reply_text("❌ Please use the buttons or commands.")
