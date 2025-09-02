@@ -451,6 +451,10 @@ def run_spoof_pipeline(filepath):
         if ENABLE_FPS_JITTER:
             fps += random.uniform(-0.1, 0.1)
 
+        # Create video writer to save processed frames
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(path, fourcc, fps, (w, h))
+
         _, sample = cap.read()
         mask = detect_static_watermark(sample) if ENABLE_WATERMARK_REMOVAL else None
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
@@ -497,14 +501,28 @@ def run_spoof_pipeline(filepath):
             elif UPSCALE_RESOLUTION == "4K":
                 frame = cv2.resize(frame, (3840, 2160))
 
-                # Adjust spoof parameters
+            # Write the processed frame
+            out.write(frame)
+            index += 1
+
+        # Release everything
+        cap.release()
+        out.release()
 
 
     print("🔧 Spoofing:", filename)
     frame_variance_spoofer(temp_video_only)
 
     transcode_cmd = build_transcode_command(temp_video_only, filepath, transcoded_output, TRANSCODE_PROFILE, FFMPEG_PATH)
-    subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    print("🔧 Running transcode command:", " ".join(transcode_cmd))
+    result = subprocess.run(transcode_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    
+    if result.returncode != 0 or not os.path.exists(transcoded_output):
+        print(f"[❌] Transcoding failed. FFmpeg STDERR:")
+        print(result.stderr.decode())
+        print(f"[❌] FFmpeg STDOUT:")
+        print(result.stdout.decode())
+        return
     # === PHASE 2.5 ADDITIONS ===
 
     # ➕ Subtitle Track Injection (Invisible .srt)
