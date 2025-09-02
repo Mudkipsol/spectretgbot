@@ -165,6 +165,7 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
     def process_video(video_path):
         try:
             tracker.update_progress(current_item=os.path.basename(video_path))
+            print(f"🎬 Processing: {os.path.basename(video_path)}")
             
             # Set spoofing engine globals based on preset
             if preset == "TIKTOK_CLEAN":
@@ -182,34 +183,66 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
                 se.FORGERY_PROFILE = "CANON_PRO"
                 se.TRANSCODE_PROFILE = "YT_WEB"
                 se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
+            elif preset == "OF_WASH":
+                se.PRESET_MODE = "OF_WASH"
+                se.FORGERY_PROFILE = "OF_CREATOR"
+                se.TRANSCODE_PROFILE = "MOBILE_NATIVE"
+                se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+            
+            # Get existing output files before processing
+            os.makedirs("output", exist_ok=True)
+            existing_files = set(os.listdir("output"))
             
             # Process video
             run_spoof_pipeline(video_path)
             
-            # Find output file
-            output_files = []
-            for file in os.listdir("output"):
-                if file.startswith("spoofed_") and file.endswith("_final_output.mp4"):
-                    output_files.append(os.path.join("output", file))
+            # Find new output files created after processing
+            current_files = set(os.listdir("output"))
+            new_files = current_files - existing_files
             
-            if output_files:
-                # Get the most recent output file
-                latest_output = max(output_files, key=os.path.getctime)
+            # Look for the output file
+            output_candidates = []
+            for file in new_files:
+                if file.startswith("spoofed_") and file.endswith("_final_output.mp4"):
+                    output_candidates.append(os.path.join("output", file))
+            
+            # If no new files, check all files (fallback)
+            if not output_candidates:
+                all_output_files = []
+                for file in os.listdir("output"):
+                    if file.startswith("spoofed_") and file.endswith("_final_output.mp4"):
+                        all_output_files.append(os.path.join("output", file))
+                
+                if all_output_files:
+                    # Get the most recent file
+                    latest_output = max(all_output_files, key=os.path.getctime)
+                    output_candidates = [latest_output]
+            
+            if output_candidates:
+                latest_output = output_candidates[0] if len(output_candidates) == 1 else max(output_candidates, key=os.path.getctime)
+                print(f"✅ Video processed: {os.path.basename(latest_output)}")
                 tracker.update_progress(completed=1)
                 return {"original": video_path, "spoofed": latest_output, "status": "success"}
             else:
+                print(f"❌ No output file found for: {os.path.basename(video_path)}")
                 tracker.update_progress(failed=1)
                 return {"original": video_path, "spoofed": None, "status": "failed", "error": "No output file generated"}
                 
         except Exception as e:
+            print(f"❌ Error processing {os.path.basename(video_path)}: {str(e)}")
             tracker.update_progress(failed=1)
             return {"original": video_path, "spoofed": None, "status": "failed", "error": str(e)}
     
-    # Process videos (limited parallelism due to resource intensity)
+    # Process videos sequentially to avoid file conflicts (max_workers=1 for videos)
+    if max_workers > 1:
+        print("🔧 Using sequential processing for video stability")
+        max_workers = 1
+    
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_path = {executor.submit(process_video, path): path for path in video_paths}
-        
-        for future in as_completed(future_to_path):
+        # Process one at a time for videos to avoid output file conflicts
+        for i, video_path in enumerate(video_paths):
+            print(f"📹 Processing video {i+1}/{len(video_paths)}: {os.path.basename(video_path)}")
+            future = executor.submit(process_video, video_path)
             result = future.result()
             results.append(result)
             
