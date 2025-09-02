@@ -258,6 +258,62 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
     
     return {"results": results, "report_path": report_path, "tracker": tracker.get_progress()}
 
+def bulk_spoof_gifs(gif_paths, platform="reddit", variance_strength="medium", max_workers=3):
+    """
+    Bulk spoof GIFs with progress tracking.
+    
+    Args:
+        gif_paths: List of GIF file paths
+        platform: Target platform (reddit, twitter, threads, discord)
+        variance_strength: Spoofing variance level
+        max_workers: Number of parallel workers
+    
+    Returns:
+        Dict with results and report path
+    """
+    start_time = time.time()
+    tracker = BulkProgressTracker(len(gif_paths))
+    results = []
+    
+    print(f"🎭 Starting bulk GIF spoofing: {len(gif_paths)} GIFs for {platform.upper()}")
+    
+    def process_gif(gif_path):
+        try:
+            tracker.update_progress(current_item=os.path.basename(gif_path))
+            print(f"🎭 Processing: {os.path.basename(gif_path)}")
+            
+            spoofed_path = spoof_gif_advanced(gif_path, platform, variance_strength, True)
+            
+            print(f"✅ GIF processed: {os.path.basename(spoofed_path)}")
+            tracker.update_progress(completed=1)
+            return {"original": gif_path, "spoofed": spoofed_path, "status": "success"}
+            
+        except Exception as e:
+            print(f"❌ Error processing {os.path.basename(gif_path)}: {str(e)}")
+            tracker.update_progress(failed=1)
+            return {"original": gif_path, "spoofed": None, "status": "failed", "error": str(e)}
+    
+    # Process with thread pool
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_path = {executor.submit(process_gif, path): path for path in gif_paths}
+        
+        for future in as_completed(future_to_path):
+            result = future.result()
+            results.append(result)
+            
+            # Progress update
+            progress = tracker.get_progress()
+            if progress["completed"] % 2 == 0:
+                print(f"⏳ Progress: {progress['completed']}/{progress['total']} ({progress['progress_percent']:.1f}%)")
+    
+    end_time = time.time()
+    report_path = create_batch_report(results, "gif_spoofing", start_time, end_time)
+    
+    successful = len([r for r in results if r["status"] == "success"])
+    print(f"✅ Bulk GIF spoofing complete: {successful}/{len(gif_paths)} successful")
+    
+    return {"results": results, "report_path": report_path, "tracker": tracker.get_progress()}
+
 def bulk_convert_to_gifs(video_paths, platform="general", fps=15, width=400, max_workers=3):
     """Bulk convert videos to GIFs with progress tracking."""
     start_time = time.time()
