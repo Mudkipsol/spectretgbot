@@ -83,13 +83,13 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
     profile_map = {
         "TIKTOK_IOS": [
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # Fastest preset for container environments
-            "-tune", "zerolatency",  # Optimized for low latency
-            "-g", "30",  # Reduced GOP size for faster processing
-            "-b:v", "2000k",  # Reduced bitrate for faster processing
-            "-maxrate", "2500k",
-            "-bufsize", "4000k",
-            "-profile:v", "baseline",  # Most compatible profile
+            "-preset", "fast",  # Good balance of quality and speed
+            "-tune", "film",  # Better quality for video content
+            "-g", "30",  # GOP size
+            "-b:v", "3500k",  # Higher bitrate for better quality
+            "-maxrate", "4000k",
+            "-bufsize", "6000k",
+            "-profile:v", "main",  # Better quality than baseline
             "-level", "4.0",  # Safe level
             "-threads", "2",  # Limit threads for containers
             "-movflags", "+faststart"
@@ -108,14 +108,14 @@ def build_transcode_command(input_path, original_audio_path, output_path, profil
         ],
         "IG_REELS": [
             "-c:v", "libx264",
-            "-preset", "ultrafast",  # Fastest preset for container environments
-            "-tune", "zerolatency",  # Optimized for low latency
-            "-g", "30",  # Reduced GOP size for faster processing
-            "-b:v", "2500k",  # Reduced bitrate for faster processing
-            "-maxrate", "3000k",
-            "-bufsize", "4000k",
-            "-profile:v", "baseline",  # Most compatible profile
-            "-level", "4.0",  # Increased from 3.0 to 4.0 for high res support
+            "-preset", "fast",  # Good balance of quality and speed
+            "-tune", "film",  # Better quality for video content
+            "-g", "30",  # GOP size
+            "-b:v", "3200k",  # Higher bitrate for better quality
+            "-maxrate", "3800k",
+            "-bufsize", "5000k",
+            "-profile:v", "main",  # Better quality than baseline
+            "-level", "4.0",  # Safe level for high res support
             "-threads", "2",  # Limit threads for containers
             "-movflags", "+faststart"
         ],
@@ -470,10 +470,24 @@ def run_spoof_pipeline(filepath):
         os.makedirs(temp_dir, exist_ok=True)
         
         try:
-            # Extract frames using FFmpeg with optimizations for containers
+            # Get original video info to preserve framerate
+            probe_cmd = [FFMPEG_PATH, "-i", path, "-f", "null", "-"]
+            probe_result = subprocess.run(probe_cmd, stderr=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            
+            # Extract original framerate from probe output
+            original_fps = "30"  # Default fallback
+            stderr_output = probe_result.stderr
+            if "fps" in stderr_output:
+                import re
+                fps_match = re.search(r'(\d+\.?\d*)\s*fps', stderr_output)
+                if fps_match:
+                    original_fps = fps_match.group(1)
+                    print(f"🔧 Detected original framerate: {original_fps} fps")
+            
+            # Extract frames using FFmpeg with original framerate preserved  
             extract_cmd = [
                 FFMPEG_PATH, "-i", path,
-                "-vf", "fps=15,scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Reduce to 15fps and ensure even dimensions
+                "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2",  # Just ensure even dimensions, keep original fps
                 "-q:v", "2",  # High quality for frame extraction
                 "-threads", "2",  # Limit threads for container compatibility
                 f"{temp_dir}/frame_%04d.png"
@@ -560,14 +574,15 @@ def run_spoof_pipeline(filepath):
             temp_output = path + "_processed.mp4"
             reassemble_cmd = [
                 FFMPEG_PATH, "-y",
-                "-framerate", "15",  # Match extraction framerate
+                "-framerate", original_fps,  # Use original framerate to maintain speed
                 "-i", f"{temp_dir}/frame_%04d.png",
                 "-i", path,  # Original video for audio
                 "-c:v", "libx264",
-                "-preset", "ultrafast",  # Fastest preset for container environments
+                "-preset", "fast",  # Better quality than ultrafast, still container-friendly
                 "-pix_fmt", "yuv420p",
                 "-profile:v", "baseline",  # Most compatible profile
                 "-level", "4.0",  # Safe level for most resolutions
+                "-b:v", "4000k",  # Higher bitrate for better quality
                 "-threads", "2",  # Limit threads
                 "-c:a", "copy",  # Copy audio from original
                 "-shortest",  # Match shortest stream
