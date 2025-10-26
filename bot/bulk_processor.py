@@ -21,6 +21,15 @@ from frame_extractor import batch_extract_frames
 from spoof_engine import run_spoof_pipeline
 import spoof_engine as se
 
+# Try to import V2 engine if available
+try:
+    import spoof_engine_v2 as se_v2
+    USE_V2_ENGINE = True
+    print("✅ Bulk Processor: Using Enhanced Spoof Engine V2")
+except ImportError:
+    USE_V2_ENGINE = False
+    print("⚠️ Bulk Processor: Using Legacy Spoof Engine")
+
 class BulkProgressTracker:
     """Thread-safe progress tracking for bulk operations."""
     
@@ -180,26 +189,54 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
                 print(f"[🔧] Using sanitized filename: {os.path.basename(video_path)}")
             
             # Set spoofing engine globals based on preset
-            if preset == "TIKTOK_CLEAN":
-                se.PRESET_MODE = "TIKTOK_SAFE"
-                se.FORGERY_PROFILE = "TIKTOK_IPHONE"
-                se.TRANSCODE_PROFILE = "TIKTOK_IOS"
-                se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
-            elif preset == "IG_RAW_LOOK":
-                se.PRESET_MODE = "IG_REELS_SAFE"
-                se.FORGERY_PROFILE = "IG_ANDROID"
-                se.TRANSCODE_PROFILE = "IG_REELS"
-                se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
-            elif preset == "CINEMATIC_FADE":
-                se.PRESET_MODE = "YT_SHORTS_SAFE"
-                se.FORGERY_PROFILE = "CANON_PRO"
-                se.TRANSCODE_PROFILE = "YT_WEB"
-                se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
-            elif preset == "OF_WASH":
-                se.PRESET_MODE = "OF_WASH"
-                se.FORGERY_PROFILE = "OF_CREATOR"
-                se.TRANSCODE_PROFILE = "MOBILE_NATIVE"
-                se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+            if USE_V2_ENGINE:
+                # Use V2 engine with audio spoofing
+                if preset == "TIKTOK_CLEAN":
+                    se_v2.PRESET_MODE = "TIKTOK_SAFE"
+                    se_v2.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                    se_v2.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                    se_v2.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+                    se_v2.ENABLE_AUDIO_SPOOFING = True
+                elif preset == "IG_RAW_LOOK":
+                    se_v2.PRESET_MODE = "IG_REELS_SAFE"
+                    se_v2.FORGERY_PROFILE = "IG_ANDROID"
+                    se_v2.TRANSCODE_PROFILE = "IG_REELS"
+                    se_v2.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                    se_v2.ENABLE_AUDIO_SPOOFING = True
+                elif preset == "CINEMATIC_FADE":
+                    se_v2.PRESET_MODE = "YT_SHORTS_SAFE"
+                    se_v2.FORGERY_PROFILE = "CANON_PRO"
+                    se_v2.TRANSCODE_PROFILE = "YT_WEB"
+                    se_v2.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
+                    se_v2.ENABLE_AUDIO_SPOOFING = True
+                elif preset == "OF_WASH":
+                    se_v2.PRESET_MODE = "OF_WASH"
+                    se_v2.FORGERY_PROFILE = "OF_CREATOR"
+                    se_v2.TRANSCODE_PROFILE = "MOBILE_NATIVE"
+                    se_v2.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                    se_v2.ENABLE_AUDIO_SPOOFING = True
+            else:
+                # Legacy engine
+                if preset == "TIKTOK_CLEAN":
+                    se.PRESET_MODE = "TIKTOK_SAFE"
+                    se.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                    se.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                    se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+                elif preset == "IG_RAW_LOOK":
+                    se.PRESET_MODE = "IG_REELS_SAFE"
+                    se.FORGERY_PROFILE = "IG_ANDROID"
+                    se.TRANSCODE_PROFILE = "IG_REELS"
+                    se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                elif preset == "CINEMATIC_FADE":
+                    se.PRESET_MODE = "YT_SHORTS_SAFE"
+                    se.FORGERY_PROFILE = "CANON_PRO"
+                    se.TRANSCODE_PROFILE = "YT_WEB"
+                    se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
+                elif preset == "OF_WASH":
+                    se.PRESET_MODE = "OF_WASH"
+                    se.FORGERY_PROFILE = "OF_CREATOR"
+                    se.TRANSCODE_PROFILE = "MOBILE_NATIVE"
+                    se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
             
             # Get existing output files before processing
             os.makedirs("output", exist_ok=True)
@@ -207,7 +244,10 @@ def bulk_spoof_videos(video_paths, preset="TIKTOK_CLEAN", max_workers=2):
             
             # Process video with enhanced error handling
             try:
-                run_spoof_pipeline(video_path)
+                if USE_V2_ENGINE:
+                    se_v2.run_spoof_pipeline(video_path)
+                else:
+                    run_spoof_pipeline(video_path)
             except UnicodeDecodeError as ude:
                 print(f"[⚠️] Unicode error for {os.path.basename(video_path)}: {str(ude)}")
                 # Try to copy the file with a sanitized name and retry

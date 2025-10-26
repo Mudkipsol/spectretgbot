@@ -15,9 +15,18 @@ import asyncio
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ApplicationBuilder, CommandHandler, CallbackQueryHandler, MessageHandler, filters, ContextTypes
 
-from photo_spoofer import batch_spoof_image
+from photo_spoofer import batch_spoof_image, clone_spoof_image
 from spoof_engine import run_spoof_pipeline
 import spoof_engine as se  # used to set runtime globals for the engine
+
+# Try to import V2 engine if available
+try:
+    import spoof_engine_v2 as se_v2
+    USE_V2_ENGINE = True
+    print("✅ Using Enhanced Spoof Engine V2 (High Quality + Audio Spoofing)")
+except ImportError:
+    USE_V2_ENGINE = False
+    print("⚠️ Using Legacy Spoof Engine")
 
 # Import new modules
 from gif_spoofer import spoof_gif_advanced, batch_spoof_gifs
@@ -160,7 +169,17 @@ def photo_preset_menu():
         [InlineKeyboardButton("🧵 IG Threads Mode", callback_data='photo_ig_threads')],
         [InlineKeyboardButton("🐦 Twitter Mode", callback_data='photo_twitter')],
         [InlineKeyboardButton("👽 Reddit Mode", callback_data='photo_reddit')],
+        [InlineKeyboardButton("🎭 Clone Spoof (Multiple Versions)", callback_data='photo_clone_menu')],
         [InlineKeyboardButton("🔙 Back to Main Menu", callback_data="back_to_menu")]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+def photo_clone_menu():
+    keyboard = [
+        [InlineKeyboardButton("🧵 IG Threads (3 Clones)", callback_data='photo_clone_ig_threads')],
+        [InlineKeyboardButton("🐦 Twitter (3 Clones)", callback_data='photo_clone_twitter')],
+        [InlineKeyboardButton("👽 Reddit (3 Clones)", callback_data='photo_clone_reddit')],
+        [InlineKeyboardButton("🔙 Back", callback_data='photo_spoofer')]
     ]
     return InlineKeyboardMarkup(keyboard)
 
@@ -416,6 +435,26 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     elif query.data == 'photo_spoofer':
         await query.edit_message_text("🎨 Choose your Photo Spoofing Mode:", reply_markup=photo_preset_menu())
+
+    elif query.data == 'photo_clone_menu':
+        await query.edit_message_text("🎭 Clone Spoof: Create Multiple Unique Versions\n\nSelect platform:", reply_markup=photo_clone_menu())
+    
+    elif query.data.startswith('photo_clone_'):
+        platform_mapping = {
+            'photo_clone_ig_threads': "IG_THREADS",
+            'photo_clone_twitter': "TWITTER",
+            'photo_clone_reddit': "REDDIT"
+        }
+        selected_platform = platform_mapping.get(query.data)
+        context.user_data['expected_file_type'] = 'photo_clone'
+        context.user_data['selected_photo_platform'] = selected_platform
+        context.user_data['clone_count'] = 3  # Default 3 clones
+        await query.edit_message_text(
+            f"✅ Clone Spoof Mode: {selected_platform}\n"
+            f"📥 Will create 3 unique versions\n\n"
+            f"Send your photo now.",
+            reply_markup=back_button()
+        )
 
     elif query.data == 'gif_spoof':
         await query.edit_message_text("🎭 Choose your GIF Platform:", reply_markup=gif_platform_menu())
@@ -864,62 +903,103 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # -------- Single video --------
     if file_type == 'video':
         preset = context.user_data.get('selected_preset', "TIKTOK_CLEAN")
-        await update.message.reply_text(f"🔧 Spoofing: {file_name}\n🔧 Mode: {preset}")
+        await update.message.reply_text(f"🔧 Spoofing: {file_name}\n🎨 Mode: {preset}\n⚡ Engine: {'V2 Enhanced' if USE_V2_ENGINE else 'Legacy'}")
 
-        # Reset baseline runtime flags in engine
-        se.ENABLE_WATERMARK_REMOVAL = False
-        se.ENABLE_VISUAL_ECHO = False
-        se.ENABLE_RESOLUTION_TWEAK = False
-        se.ENABLE_FPS_JITTER = False
-        se.FRAME_VARIANCE_STRENGTH = "soft"
-        se.MOTION_PROFILE = "STABILIZED_GIMBAL"
-
-        # Map preset -> engine globals
-        if preset == "IG_RAW_LOOK":
-            se.PRESET_MODE = "IG_REELS_SAFE"
-            se.FORGERY_PROFILE = "IG_ANDROID"
-            se.TRANSCODE_PROFILE = "IG_REELS"
-            se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
-            se.ENABLE_RESOLUTION_TWEAK = True
-        elif preset == "TIKTOK_CLEAN":
-            se.PRESET_MODE = "TIKTOK_SAFE"
-            se.FORGERY_PROFILE = "TIKTOK_IPHONE"
-            se.TRANSCODE_PROFILE = "TIKTOK_IOS"
-            se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
-            se.ENABLE_RESOLUTION_TWEAK = True
-            se.ENABLE_FPS_JITTER = True
-            se.FRAME_VARIANCE_STRENGTH = "light"
-        elif preset == "CINEMATIC_FADE":
-            se.PRESET_MODE = "YT_SHORTS_SAFE"
-            se.FORGERY_PROFILE = "CANON_PRO"
-            se.TRANSCODE_PROFILE = "YT_WEB"
-            se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
-            se.ENABLE_RESOLUTION_TWEAK = True
-            se.ENABLE_FPS_JITTER = False  # Disable FPS jitter to reduce flickering
-            se.ENABLE_VISUAL_ECHO = False  # Disable visual echo to prevent artifacts
-            se.FRAME_VARIANCE_STRENGTH = "very_light"  # Reduce variance strength
-        elif preset == "OF_WASH":
-            se.PRESET_MODE = "OF_WASH"
-            se.FORGERY_PROFILE = "OF_CREATOR"
-            se.TRANSCODE_PROFILE = "MOBILE_NATIVE"
-            se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
-            se.ENABLE_WATERMARK_REMOVAL = True
-            se.FRAME_VARIANCE_STRENGTH = "soft"
+        if USE_V2_ENGINE:
+            # Use V2 engine with enhanced quality and audio spoofing
+            if preset == "IG_RAW_LOOK":
+                se_v2.PRESET_MODE = "IG_REELS_SAFE"
+                se_v2.FORGERY_PROFILE = "IG_ANDROID"
+                se_v2.TRANSCODE_PROFILE = "IG_REELS"
+                se_v2.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                se_v2.ENABLE_AUDIO_SPOOFING = True
+            elif preset == "TIKTOK_CLEAN":
+                se_v2.PRESET_MODE = "TIKTOK_SAFE"
+                se_v2.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                se_v2.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                se_v2.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+                se_v2.ENABLE_AUDIO_SPOOFING = True  # CRITICAL for TikTok
+            elif preset == "CINEMATIC_FADE":
+                se_v2.PRESET_MODE = "YT_SHORTS_SAFE"
+                se_v2.FORGERY_PROFILE = "CANON_PRO"
+                se_v2.TRANSCODE_PROFILE = "YT_WEB"
+                se_v2.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
+                se_v2.ENABLE_AUDIO_SPOOFING = True
+            elif preset == "OF_WASH":
+                se_v2.PRESET_MODE = "OF_WASH"
+                se_v2.FORGERY_PROFILE = "OF_CREATOR"
+                se_v2.TRANSCODE_PROFILE = "MOBILE_NATIVE"
+                se_v2.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                se_v2.ENABLE_AUDIO_SPOOFING = True
+            else:
+                se_v2.PRESET_MODE = "TIKTOK_SAFE"
+                se_v2.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                se_v2.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                se_v2.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+                se_v2.ENABLE_AUDIO_SPOOFING = True
+            
+            try:
+                # Run V2 engine
+                await asyncio.to_thread(se_v2.run_spoof_pipeline, input_path)
+            except Exception as e:
+                logging.error(f"V2 Engine error: {e}, falling back to legacy engine")
+                await asyncio.to_thread(run_spoof_pipeline, input_path)
         else:
-            se.PRESET_MODE = "TIKTOK_SAFE"
-            se.FORGERY_PROFILE = "TIKTOK_IPHONE"
-            se.TRANSCODE_PROFILE = "TIKTOK_IOS"
-            se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+            # Use legacy engine
+            se.ENABLE_WATERMARK_REMOVAL = False
+            se.ENABLE_VISUAL_ECHO = False
+            se.ENABLE_RESOLUTION_TWEAK = False
+            se.ENABLE_FPS_JITTER = False
+            se.FRAME_VARIANCE_STRENGTH = "soft"
+            se.MOTION_PROFILE = "STABILIZED_GIMBAL"
 
-        try:
-            if hasattr(se, "apply_style_and_lut"):
-                se.apply_style_and_lut(se.STYLE_MORPH_PRESET)
-        except Exception as e:
-            print("[LUT ERROR]", e)
+            # Map preset -> engine globals
+            if preset == "IG_RAW_LOOK":
+                se.PRESET_MODE = "IG_REELS_SAFE"
+                se.FORGERY_PROFILE = "IG_ANDROID"
+                se.TRANSCODE_PROFILE = "IG_REELS"
+                se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                se.ENABLE_RESOLUTION_TWEAK = True
+            elif preset == "TIKTOK_CLEAN":
+                se.PRESET_MODE = "TIKTOK_SAFE"
+                se.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                se.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+                se.ENABLE_RESOLUTION_TWEAK = True
+                se.ENABLE_FPS_JITTER = True
+                se.FRAME_VARIANCE_STRENGTH = "light"
+            elif preset == "CINEMATIC_FADE":
+                se.PRESET_MODE = "YT_SHORTS_SAFE"
+                se.FORGERY_PROFILE = "CANON_PRO"
+                se.TRANSCODE_PROFILE = "YT_WEB"
+                se.STYLE_MORPH_PRESET = "CINEMATIC_FADE"
+                se.ENABLE_RESOLUTION_TWEAK = True
+                se.ENABLE_FPS_JITTER = False
+                se.ENABLE_VISUAL_ECHO = False
+                se.FRAME_VARIANCE_STRENGTH = "very_light"
+            elif preset == "OF_WASH":
+                se.PRESET_MODE = "OF_WASH"
+                se.FORGERY_PROFILE = "OF_CREATOR"
+                se.TRANSCODE_PROFILE = "MOBILE_NATIVE"
+                se.STYLE_MORPH_PRESET = "IG_RAW_LOOK"
+                se.ENABLE_WATERMARK_REMOVAL = True
+                se.FRAME_VARIANCE_STRENGTH = "soft"
+            else:
+                se.PRESET_MODE = "TIKTOK_SAFE"
+                se.FORGERY_PROFILE = "TIKTOK_IPHONE"
+                se.TRANSCODE_PROFILE = "TIKTOK_IOS"
+                se.STYLE_MORPH_PRESET = "TIKTOK_CLEAN"
+
+            try:
+                if hasattr(se, "apply_style_and_lut"):
+                    se.apply_style_and_lut(se.STYLE_MORPH_PRESET)
+            except Exception as e:
+                print("[LUT ERROR]", e)
 
         try:
             # Run heavy pipeline off the event loop
-            await asyncio.to_thread(run_spoof_pipeline, input_path)
+            if not USE_V2_ENGINE:
+                await asyncio.to_thread(run_spoof_pipeline, input_path)
 
             spoofed_files = glob.glob(os.path.join(OUTPUT_DIR, "spoofed_*_final_output.mp4"))
             if not spoofed_files:
@@ -986,6 +1066,46 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logging.error(f"Error during photo spoofing: {e}")
             await update.message.reply_text("❌ Something went wrong while spoofing the photo. Please try again.", reply_markup=back_button())
+
+    # -------- Photo Clone Spoofing --------
+    elif file_type == 'photo_clone':
+        platform_sel = context.user_data.get('selected_photo_platform', "IG_THREADS")
+        clone_count = context.user_data.get('clone_count', 3)
+        await update.message.reply_text(f"🎭 Creating {clone_count} unique clones for: {platform_sel}\n⏳ This may take a moment...")
+        try:
+            cloned_paths = await asyncio.to_thread(clone_spoof_image, input_path, platform_sel, clone_count)
+            
+            # Send all clones
+            for i, clone_path in enumerate(cloned_paths):
+                with open(clone_path, "rb") as f:
+                    await context.bot.send_photo(
+                        chat_id=update.effective_chat.id,
+                        photo=f,
+                        caption=f"✅ Clone {i+1}/{len(cloned_paths)} - {platform_sel}"
+                    )
+            
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text=f"🎉 Successfully created {len(cloned_paths)} unique clones!\n\nEach clone has different fingerprints and can be posted separately.",
+                reply_markup=back_button()
+            )
+
+            # 🔻 Deduct credits (1 per clone)
+            ok, info = await deduct_credits_for_user(update.effective_user.id, len(cloned_paths))
+            if ok:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"💳 Credits consumed: {len(cloned_paths)}. Remaining: {info}")
+                except Exception:
+                    pass
+            else:
+                try:
+                    await context.bot.send_message(chat_id=update.effective_chat.id, text=f"[⚠️] Could not deduct {len(cloned_paths)} credits: {info}")
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logging.error(f"Error during photo cloning: {e}")
+            await update.message.reply_text("❌ Something went wrong while cloning the photo. Please try again.", reply_markup=back_button())
 
     # -------- GIF Spoofing --------
     elif file_type == 'gif':

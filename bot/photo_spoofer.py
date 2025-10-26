@@ -116,3 +116,77 @@ def batch_spoof_image(image_path, platform="generic", clean_meta=True, tweak_wei
         return result_path
     except Exception as e:
         return f"[ERROR] Spoofing failed for {os.path.basename(image_path)}: {e}"
+
+def clone_spoof_image(image_path, platform="generic", clone_count=3):
+    """
+    Create multiple unique clones of an image with different fingerprints.
+    Each clone will have different random variations.
+    
+    Args:
+        image_path: Path to input image
+        platform: Target platform (IG_THREADS, TWITTER, REDDIT)
+        clone_count: Number of unique clones to create (2-10)
+    
+    Returns:
+        List of paths to cloned images
+    """
+    try:
+        cloned_paths = []
+        
+        print(f"🎭 Creating {clone_count} unique clones for {platform}...")
+        
+        for i in range(clone_count):
+            print(f"🎨 Processing clone {i+1}/{clone_count}")
+            
+            # Load original image
+            img = Image.open(image_path)
+            img = img.convert("RGB")
+            
+            # Apply random variations for each clone
+            # Each clone gets different random parameters for uniqueness
+            
+            # 1. Random color enhancement (different for each clone)
+            color_factor = random.uniform(0.90, 1.10)
+            enhancer = ImageEnhance.Color(img)
+            img = enhancer.enhance(color_factor)
+            
+            # 2. Random contrast enhancement
+            contrast_factor = random.uniform(0.90, 1.10)
+            enhancer = ImageEnhance.Contrast(img)
+            img = enhancer.enhance(contrast_factor)
+            
+            # 3. Random brightness adjustment
+            brightness_factor = random.uniform(0.95, 1.05)
+            enhancer = ImageEnhance.Brightness(img)
+            img = enhancer.enhance(brightness_factor)
+            
+            # 4. Random sharpening intensity
+            if random.random() < 0.7:  # 70% chance
+                img = img.filter(ImageFilter.SHARPEN)
+            
+            # 5. Random slight blur (sometimes imperceptible blur helps)
+            if random.random() < 0.2:  # 20% chance
+                img = img.filter(ImageFilter.GaussianBlur(radius=0.5))
+            
+            # 6. Random quality (different compression for each clone)
+            quality = random.randint(75, 95)
+            
+            # 7. Platform-specific quality
+            platform_quality_map = {
+                "IG_THREADS": random.randint(78, 92),
+                "TWITTER": random.randint(68, 82),
+                "REDDIT": random.randint(80, 90)
+            }
+            quality = platform_quality_map.get(platform, random.randint(75, 90))
+            
+            # Save clone with unique suffix
+            output_path = get_output_path(image_path, suffix=f'_clone_{i+1}_{platform}')
+            img.save(output_path, format="JPEG", quality=quality)
+            
+            cloned_paths.append(output_path)
+        
+        print(f"✅ Created {len(cloned_paths)} unique clones")
+        return cloned_paths
+        
+    except Exception as e:
+        raise RuntimeError(f"Clone spoofing failed: {e}")
